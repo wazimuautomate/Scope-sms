@@ -1,6 +1,13 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+
+    // Phase 8 — Room's annotation processor. KSP, never kapt: kapt is
+    // incompatible with AGP 9's built-in Kotlin (memory.md). First use of this
+    // catalog pin, so this push is what proves KSP 2.3.10 resolves against
+    // AGP 9.2.1 — the catalog flags every "later phases" entry as researched but
+    // never exercised by a build.
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -70,8 +77,21 @@ android {
     }
 
     compileOptions {
+        // Stays at 17 even though CI now provisions JDK 21 for Robolectric
+        // (see .github/workflows/build.yml). 17 is AGP's minimum, not its
+        // maximum — a 21 toolchain emits 17 bytecode fine, and the app's own
+        // compatibility floor is unchanged.
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        unitTests {
+            // Robolectric needs the merged resources/manifest to boot an Android
+            // runtime in a JVM test. Without this, Phase 8's DAO tests fail at
+            // startup rather than on an assertion.
+            isIncludeAndroidResources = true
+        }
     }
 
     buildFeatures {
@@ -80,6 +100,18 @@ android {
         // ArchitectureGuardTest. Off by default since AGP 8.
         buildConfig = true
     }
+}
+
+// Phase 8 — Room. Writes the schema JSON to app/schemas/, which is committed:
+// it's what makes a migration test possible later and what puts a schema change
+// in the diff instead of hiding it behind annotations. ScopeSmsDatabase has no
+// destructive-migration fallback on purpose, so this is the record a future
+// migration is written against.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    // Room's own recommendation, and it matters here: it moves query errors from
+    // "we hope no one ever inserts a bad row" to a build failure.
+    arg("room.generateKotlin", "true")
 }
 
 // No `kotlin { compilerOptions { } }` block: under AGP 9's built-in Kotlin,
@@ -106,7 +138,22 @@ dependencies {
     // never resolved by a build), so this push is what confirms it exists.
     implementation(libs.androidx.datastore.preferences)
 
+    // Phase 8 — activity log + dashboard stats. room-ktx supplies the coroutine
+    // and Flow support the DAO returns. Phases 3 and 5b add their tables to the
+    // same database (see ScopeSmsDatabase) and need no extra dependency here.
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
+
+    // Phase 8 — the log/stats tests use a real in-memory SQLite via Room, so the
+    // SQL in ActivityLogDao is executed rather than trusted. That needs
+    // Robolectric, and Robolectric against SDK 36+ needs JDK 21 — the CI workflow
+    // is bumped to 21 in this branch. See memory.md.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

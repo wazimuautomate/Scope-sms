@@ -2,6 +2,8 @@ package com.scopesms.autoreply.di
 
 import android.content.Context
 import com.scopesms.autoreply.ScopeSmsApplication
+import com.scopesms.autoreply.data.db.ScopeSmsDatabase
+import com.scopesms.autoreply.data.log.ActivityLogRepository
 import com.scopesms.autoreply.data.settings.SettingsRepository
 import com.scopesms.autoreply.data.system.BatteryOptimizationManager
 import com.scopesms.autoreply.telephony.AndroidSimReader
@@ -59,6 +61,20 @@ class AppContainer(context: Context) {
 
     val batteryOptimization: BatteryOptimizationManager by lazy {
         BatteryOptimizationManager(appContext)
+    }
+
+    /**
+     * Phase 8. Lazy like everything else here — opening SQLite is real I/O, and
+     * a process started by an incoming SMS shouldn't pay for it until the
+     * decision path actually writes a log row.
+     *
+     * Phases 3 and 5b add their DAOs to the same [ScopeSmsDatabase] and should
+     * expose their repositories from this same instance — not build a second one.
+     */
+    private val database: ScopeSmsDatabase by lazy { ScopeSmsDatabase.create(appContext) }
+
+    val activityLog: ActivityLogRepository by lazy {
+        ActivityLogRepository(database.activityLogDao())
     }
 
     companion object {

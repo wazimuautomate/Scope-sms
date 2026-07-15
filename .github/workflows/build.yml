@@ -39,16 +39,21 @@ jobs:
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v6
 
-      # JDK 17 is what AGP 9.2 requires. Known future snag: Robolectric needs
-      # JDK 21 to run tests against SDK 36, so whichever phase first adds
-      # Robolectric will likely bump this runner to 21 while leaving
-      # jvmTarget/compileOptions at 17 (17 is AGP's minimum, not its maximum).
-      # Nothing here needs it yet — see memory.md.
-      - name: Set up JDK 17
+      # JDK 21, bumped from 17 by Phase 8 — the snag Phase 0 predicted here has
+      # now arrived. Phase 8's DAO tests run Room against real in-memory SQLite
+      # via Robolectric, and Robolectric needs JDK 21 to run against SDK 36+
+      # (those SDK jars are Java-21 compiled); on 17 it fails with
+      # UnsupportedClassVersionError before a single assertion runs.
+      #
+      # This is the runner's JDK only. compileOptions/jvmTarget stay at 17 in
+      # app/build.gradle.kts, which is correct and not an oversight: 17 is AGP's
+      # minimum, not its maximum, so a 21 toolchain happily emits 17 bytecode and
+      # the app's own compatibility is unchanged. See memory.md.
+      - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       # Handles Gradle's own caching; no separate actions/cache step needed.
       - name: Set up Gradle

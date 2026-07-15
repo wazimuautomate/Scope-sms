@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.scopesms.autoreply.domain.notifications.NotificationToggles
 import com.scopesms.autoreply.domain.sim.SimSelection
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
@@ -57,6 +58,35 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         .map { it[KEY_ONBOARDING_COMPLETE] ?: false }
 
     /**
+     * Last toggles read from disk, or null before the first read.
+     *
+     * Cached for the same reason as [cachedSimSelection]: the decision path reads
+     * these once per incoming payment and must not block on I/O while ~10 SMS
+     * land in 1–3 seconds (CLAUDE.md constraint 5).
+     */
+    @Volatile
+    private var cachedToggles: NotificationToggles? = null
+
+    /**
+     * Which reply flows are switched on. Emits the current value immediately,
+     * then on every change.
+     *
+     * Phase 6. Both keys are read from one `Preferences` snapshot, so the pair is
+     * always internally consistent — see [NotificationToggles].
+     */
+    val notificationToggles: Flow<NotificationToggles> = dataStore.data
+        .safe()
+        .map { prefs ->
+            NotificationToggles(
+                unmatchedReplyEnabled = prefs[KEY_UNMATCHED_REPLY_ENABLED]
+                    ?: NotificationToggles.DEFAULT.unmatchedReplyEnabled,
+                matchedReplyEnabled = prefs[KEY_MATCHED_REPLY_ENABLED]
+                    ?: NotificationToggles.DEFAULT.matchedReplyEnabled,
+            )
+        }
+        .onEach { cachedToggles = it }
+
+    /**
      * The SIM selection, for callers on the hot path.
      *
      * Returns the cached value with no I/O once anything has read
@@ -78,6 +108,28 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
 
     suspend fun setOnboardingComplete(complete: Boolean) {
         dataStore.edit { it[KEY_ONBOARDING_COMPLETE] = complete }
+    }
+
+    /**
+     * The toggles, for callers on the hot path. No I/O once anything in this
+     * process has read [notificationToggles] — see [currentSimSelection].
+     */
+    suspend fun currentNotificationToggles(): NotificationToggles =
+        cachedToggles ?: notificationToggles.first()
+
+    suspend fun setUnmatchedReplyEnabled(enabled: Boolean) {
+        // Cache first, then persist — as with setSimSelection, so a payment
+        // landing in the same millisecond as the agent's tap is judged by the
+        // choice they just made rather than the one they just revoked. Turning a
+        // flow OFF is the direction that matters: the agent tapping it off wants
+        // it off *now*, not after a disk write settles.
+        cachedToggles = currentNotificationToggles().copy(unmatchedReplyEnabled = enabled)
+        dataStore.edit { it[KEY_UNMATCHED_REPLY_ENABLED] = enabled }
+    }
+
+    suspend fun setMatchedReplyEnabled(enabled: Boolean) {
+        cachedToggles = currentNotificationToggles().copy(matchedReplyEnabled = enabled)
+        dataStore.edit { it[KEY_MATCHED_REPLY_ENABLED] = enabled }
     }
 
     /**
@@ -105,6 +157,13 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
 
         private val KEY_SIM_SELECTION = stringPreferencesKey("sim_selection")
         private val KEY_ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+
+        // Phase 6. Absent means "never set" and falls back to
+        // NotificationToggles.DEFAULT — which is why these are read with `?:`
+        // against the default rather than `?: false`. A missing key must not read
+        // as "the agent switched this off".
+        private val KEY_UNMATCHED_REPLY_ENABLED = booleanPreferencesKey("unmatched_reply_enabled")
+        private val KEY_MATCHED_REPLY_ENABLED = booleanPreferencesKey("matched_reply_enabled")
 
         // Battery-optimisation exemption is deliberately NOT stored here, even
         // though CLAUDE.md's architecture section lists it among the settings.
