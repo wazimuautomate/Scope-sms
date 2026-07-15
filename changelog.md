@@ -4,61 +4,58 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
-## 2026-07-16 — Phase 6 ✅ + Phase 8 ✅ (Phase 7 ⛔ blocked)
+## 2026-07-16 — Phase 9: Reliability hardening 🟡 code done, exit criteria unmet
 
-**Branch:** `feature/phase-6-7-8-toggles-ui-log` (stacked on phase-1, merges phase-5)
-**State:** Phase 6 done. Phase 8 code done. **Phase 7 not started — blocked.**
-
-Session brief was "build Phase 6, 7 & 8". Two of the three shipped; Phase 7 is
-the integration layer and its dependencies are still unmerged (see below).
+**Branch:** `feature/phase-9-reliability-hardening` (cut from
+`feature/phase-1-permissions-sim`, **not** `main` — Phase 9 uses Phase 1's
+classes and `main` has only Phase 0). **Merge Phase 1 first.**
+**CI:** ✅ green — run 29452472972, 64 tests / 0 failures, debug APK built.
 
 ### Built
-- **Phase 6 — independent notification toggles.** `NotificationToggles` (the two
-  flags as one consistent snapshot), persisted in Phase 1's existing DataStore —
-  a second DataStore on the same file would corrupt it, so extending
-  `SettingsRepository` was forced, not chosen. `decideReply()` is a pure, total
-  gate over `MatchOutcome × toggles`, JVM-testable with no Android runtime.
-- **Phase 8 — activity log & dashboard stats.** `ActivityLogEntity`/`Dao`/
-  `Repository` + `ActivityRecord`/`DashboardStats`. Stats computed in SQL; search
-  and filter by text/status/flow/date; log dedupe on `transactionCode`.
-- **CI moved to JDK 21** — the snag Phase 0 predicted, now real (Robolectric vs
-  SDK 36+). `compileOptions` stays at 17.
+- **Boot health check** — `BootCompletedReceiver` → `ReliabilityInspector` →
+  pure `domain/reliability/ReliabilityCheck`. Detects a revoked permission, no
+  SIM, a watched slot with no SIM in it, and a missing battery exemption; warns
+  the agent via a `health` notification channel. Silent when healthy.
+- **OEM autostart guidance** — per-OEM instructions (Transsion / Xiaomi /
+  ColorOS / Vivo / Huawei / Samsung / generic) plus best-effort deep links,
+  probed at runtime and discarded when absent.
+- **UI** — stateless composables only (`OemGuidanceSection`,
+  `ReliabilityIssueCard`) for Phase 7 to place. No screen, no ViewModel.
+- **29 JVM tests**, no Robolectric (CI stays on JDK 17).
 
-### Exit criteria
-| Phase | Criterion | Result |
-| --- | --- | --- |
-| 6 | All four toggle combinations tested | ✅ enumerated explicitly, plus the `NoRulesConfigured` override across all four |
-| 8 | Stats/log match real traffic | ⚠️ **needs a real device** — logic verified against real SQLite, but the plan's criterion is a manual on-device session |
+### 🔴 Not done — Phase 9's exit criteria are all real-device work
+The 24h Transsion soak test, the reboot pass, and the airplane-mode queue test
+have **not been run**. Green CI here proves the code compiles and the pure logic
+is right — the half that was never in doubt. The airplane-mode criterion is also
+blocked on Phase 5b (no outbound queue exists yet). **Phase 9 is not done.**
 
-### Verified, not assumed
-- **102 tests pass, `assembleDebug` succeeds** with Phases 1 + 5/5b + 6 + 8 and
-  Phase 3/4's domain types compiled together — currently the only evidence these
-  phases integrate at all.
-- Verified via a **throwaway `scratch/verify-phase-6-8` branch** (Phase 0's own
-  technique) that temporarily vendored Phase 3/4's unpushed files, because this
-  branch cannot compile alone and CI is still the only compiler. Branch deleted.
-- **It caught a real bug**: the day-boundary test asserted 2 where 1 was correct
-  (`20:30Z` is 23:30 *on the 15th* in Nairobi — yesterday). Code was right, test
-  was wrong.
+### Found
+- **The plan's boot-check tasks were already solved by Phase 1.** BUILD-PLAN asks
+  the receiver to re-validate saved subscription IDs and saved exemption status;
+  Phase 1 persists neither, on purpose, citing this same Phase 9 line. Checks the
+  equivalent live conditions instead — chiefly "the watched slot has no SIM in
+  it", where `SimFilter` correctly drops every message and the app looks healthy
+  while replying to nobody.
+- **🔴 Transsion component names are unverified** and it's the primary market. The
+  ~12 repos carrying them largely copy each other, and the most-used library has
+  no Transsion entry at all. Needs the agent's real Tecno/Infinix to settle. The
+  written instructions are the contract precisely because of this.
+- **A bug caught by its own test:** `none {}` is vacuously true on an empty set,
+  so an empty SIM selection rendered *"You told Scope SMS to watch , but those
+  slots are empty."* Red on the first CI run, then fixed.
+- **🔴 Parallel sessions share one working directory and one git HEAD.** Another
+  agent's `git checkout -b` moved this session's branch mid-work; Phase 9's
+  uncommitted files ended up on Phase 2's branch. Nothing lost — Phase 2's tree
+  was handed back untouched and Phase 9 moved to a `git worktree`. **Every
+  session should use its own worktree**; see memory.md.
 
-### 🔴 Raised — collisions no session can see from inside its own worktree
-- **TWO MONEY TYPES.** Phase 2 ships `Money` + `amountCents: Long`; Phase 3/4
-  ships `KshAmount` value class. Both chose integer cents, so the data agrees —
-  but they will not compile together. **Recommendation: `KshAmount` wins, Phase 2
-  adapts.** Unresolved; owned by whoever merges those two.
-- **THREE ROOM DATABASES.** Phase 5b's `data/AppDatabase.kt` (pushed first) wins.
-  Phase 8's duplicate was **deleted and its entity moved into it**. Phase 3/4
-  still has a competing `data/db/ScopeSmsDatabase.kt` — same filename Phase 8 had
-  — that must be dropped the same way.
-- **Phase 7 is blocked.** It wires every screen to Phases 1–6, which live across
-  four unmerged branches; Phase 3/4 had pushed nothing and existed only as
-  uncommitted files. Building screens against signatures still being edited
-  produces code that can't compile or be reviewed. Phase 7 should start once
-  2, 3/4 and 5 are on `main`.
-- **Toggle defaults still unconfirmed with the client** (open decision 4).
-  Shipped with BUILD-PLAN's recommendation (unmatched=ON, matched=OFF) as a
-  *pinned placeholder* — safe because a fresh install has no rules, so nothing can
-  send regardless. One constant + two tests to change.
+### Raised for the client / next sessions
+- Someone must install a CI APK on the agent's **real Tecno/Infinix** and report
+  which autostart screen opens (or that none does).
+- **Phase 8:** use a *different* notification channel for send failures — muting
+  "a reply failed" must not mute "the app has stopped working".
+- **Phase 2** owns "malformed SMS: log and skip, never crash" (a Phase 9 bullet)
+  — left alone to avoid colliding with that live session.
 
 ---
 

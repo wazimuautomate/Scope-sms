@@ -38,7 +38,7 @@ gateways.
 | 6 | Independent notification toggles | Not started |
 | 7 | Compose UI | Not started |
 | 8 | Activity log & dashboard stats | Not started |
-| 9 | Reliability hardening | Not started |
+| 9 | Reliability hardening | 🟡 Code done & CI green — exit criteria need a real device |
 | 10 | Cross-version testing | Not started |
 | 11 | Release packaging & distribution | Not started |
 
@@ -81,6 +81,15 @@ allowed for the browser or file manager doing the install.
 
 Full end-user install instructions are written in Phase 11.
 
+**Installing is not sufficient on the phones this app targets.** Tecno, Infinix,
+itel and Xiaomi builds keep their own "autostart" / "protected apps" whitelist on
+top of Android's battery-optimisation exemption, and an app missing from it is
+killed in the background — payments arrive with no reply, silently, usually once
+the screen has been off a while. No code can read or set that list; only the
+agent can. The app therefore ships per-phone instructions in-app (Phase 9), and
+Phase 11's install guide must send the agent through them rather than stopping at
+"the APK is installed".
+
 ### Toolchain
 
 Pinned in `gradle/libs.versions.toml`; CI provisions everything. JDK 17,
@@ -101,6 +110,7 @@ app/src/main/java/com/scopesms/autoreply/
 ├── telephony/   SMS receiver + SIM identification — ingestion only
 ├── network/     SCOPE SMS gateway client
 ├── queue/       Outbound send queue + WorkManager worker
+├── reliability/ Boot health check + OEM autostart guidance
 ├── ui/          Compose screens + theme
 └── di/          Dependency injection
 ```

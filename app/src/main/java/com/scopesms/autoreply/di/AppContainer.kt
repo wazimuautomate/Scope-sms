@@ -13,6 +13,9 @@ import com.scopesms.autoreply.domain.rules.PricingRuleRepository
 import com.scopesms.autoreply.domain.rules.RuleCache
 import com.scopesms.autoreply.domain.templates.MessageTemplateRepository
 import com.scopesms.autoreply.domain.templates.TemplateCache
+import com.scopesms.autoreply.reliability.OemSettingsLauncher
+import com.scopesms.autoreply.reliability.ReliabilityInspector
+import com.scopesms.autoreply.reliability.ReliabilityNotifier
 import com.scopesms.autoreply.telephony.AndroidSimReader
 import com.scopesms.autoreply.telephony.SimReader
 import kotlin.math.min
@@ -163,6 +166,22 @@ class AppContainer(context: Context) {
 
     private fun retryDelayMs(attempt: Long): Long =
         min(BASE_RETRY_DELAY_MS shl attempt.coerceAtMost(POW_CAP).toInt(), MAX_RETRY_DELAY_MS)
+
+    // ---- Phase 9: reliability hardening ------------------------------------
+
+    val reliabilityInspector: ReliabilityInspector by lazy {
+        ReliabilityInspector(appContext, settings, simReader, batteryOptimization)
+    }
+
+    val reliabilityNotifier: ReliabilityNotifier by lazy { ReliabilityNotifier(appContext) }
+
+    /**
+     * Resolved lazily like everything else, which matters more here than it
+     * looks: this one queries the PackageManager on construction of its intent
+     * list, and `BootCompletedReceiver` never touches it. Building it eagerly
+     * would put a package lookup on every headless process start.
+     */
+    val oemSettingsLauncher: OemSettingsLauncher by lazy { OemSettingsLauncher(appContext) }
 
     companion object {
         private const val TAG = "ScopeSms/Container"
