@@ -1,0 +1,22 @@
+# Normalize line endings. This repo is authored on Windows but built on Linux
+# GitHub Actions runners — see CLAUDE.md constraint 8 (all builds happen in CI).
+#
+# `gradlew` is the load-bearing case: if Git checks it out with CRLF on the
+# runner, the shebang becomes `#!/usr/bin/env sh\r` and CI fails with
+# "bad interpreter: sh^M: no such file or directory". Forcing LF here is what
+# prevents that.
+* text=auto eol=lf
+
+gradlew         text eol=lf
+*.sh            text eol=lf
+gradlew.bat     text eol=crlf
+
+# Binary — never touch line endings or diff as text.
+*.jar           binary
+*.png           binary
+*.webp          binary
+*.jpg           binary
+*.keystore      binary
+*.jks           binary
+*.apk           binary
+*.aab           binary
