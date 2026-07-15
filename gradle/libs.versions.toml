@@ -79,11 +79,28 @@ retrofit = "3.0.0"
 okhttp = "5.4.0"
 moshi = "1.15.2"
 
+# Coroutines. Used by domain/ (the cache's Flow sync) and by tests. The -core
+# and -test artifacts must share a version, hence one key for both.
+#
+# Phase 0 listed this as `coroutinesTest`; Phase 3 renamed the *version key*
+# when it added -core. Library aliases (`kotlinx-coroutines-test`) are
+# unchanged, so nothing referencing them breaks.
+coroutines = "1.11.0"
 # Phase 2+ — testing.
-coroutinesTest = "1.11.0"
-# Robolectric needs JDK 21 to run against SDK 36. CI currently provisions
-# JDK 17, so the phase that adds Robolectric must bump the workflow. Prefer
-# JVM-pure tests over Robolectric wherever the code allows it.
+
+# Robolectric — in use since Phase 3, for the Room-backed cache-sync tests.
+#
+# Phase 0 flagged that Robolectric needs JDK 21 to run against SDK 36+, while
+# CI provisions JDK 17. That is still true, and it is sidestepped rather than
+# solved: every Robolectric test here is pinned `@Config(sdk = [30])`. The
+# API 30 android-all jar is Java 11-compiled, so JDK 17 runs it fine, and 30 is
+# minSdk — CLAUDE.md constraint 1 asks for verification on the floor, not the
+# ceiling, so the floor is the more useful place to test anyway.
+#
+# If a future phase needs Robolectric at SDK 36+, that is when the workflow's
+# setup-java bumps to 21 (leaving jvmTarget/compileOptions at 17 — 17 is AGP's
+# minimum, not its maximum). Prefer JVM-pure tests over Robolectric regardless:
+# domain/ is pure Kotlin by design and needs none of this.
 robolectric = "4.16.1"
 # Coordinate renamed in OkHttp 5.x: mockwebserver3-junit4.
 mockwebserver = "5.4.0"
@@ -130,7 +147,8 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
 moshi-kotlin = { group = "com.squareup.moshi", name = "moshi-kotlin", version.ref = "moshi" }
 
-kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 mockwebserver3-junit4 = { group = "com.squareup.okhttp3", name = "mockwebserver3-junit4", version.ref = "mockwebserver" }
 truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
