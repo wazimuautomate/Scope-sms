@@ -1,6 +1,9 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    // Phase 5b — Room's annotation processor. KSP, never kapt: kapt is
+    // incompatible with AGP 9's built-in Kotlin (see memory.md).
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -80,6 +83,22 @@ android {
         // ArchitectureGuardTest. Off by default since AGP 8.
         buildConfig = true
     }
+
+    // Deliberately no `testOptions { unitTests { isReturnDefaultValues = true } }`.
+    // Phase 5's gateway logic and Phase 5b's queue rules are pure Kotlin behind
+    // ports precisely so they test on the JVM without an Android runtime, which
+    // also keeps CI on JDK 17 (Robolectric would force 21 — see memory.md).
+    // Returning defaults would let a stray android.* call quietly return null
+    // instead of failing with "not mocked", hiding the day that property breaks.
+}
+
+// Room's schema export. data/README.md is explicit that a shipped build must
+// never use fallbackToDestructiveMigration() — once the agent is live, a
+// destructive migration throws away their bundle rules and activity history.
+// Real migrations need the schema JSON committed, so export it from the start.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.generateKotlin", "true")
 }
 
 // No `kotlin { compilerOptions { } }` block: under AGP 9's built-in Kotlin,
@@ -103,5 +122,27 @@ dependencies {
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 
+    // --- Phase 5 — SCOPE SMS gateway client -------------------------------
+    // Retrofit over Ktor: the catalog already researched and pinned it, the
+    // gateway is three plain JSON POSTs (no streaming, no websockets), and
+    // OkHttp is the better-understood client on the low-end Android 11 devices
+    // this ships to. Choice recorded in memory.md.
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.moshi)
+    implementation(libs.okhttp)
+    implementation(libs.moshi.kotlin)
+
+    // --- Phase 5b — outbound queue ----------------------------------------
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+    implementation(libs.androidx.work.runtime.ktx)
+
+    // --- Test -------------------------------------------------------------
     testImplementation(libs.junit)
+    testImplementation(libs.truth)
+    testImplementation(libs.kotlinx.coroutines.test)
+    // Coordinate renamed in OkHttp 5.x — mockwebserver3-junit4, not the old
+    // com.squareup.okhttp3:mockwebserver (see memory.md).
+    testImplementation(libs.mockwebserver3.junit4)
 }
