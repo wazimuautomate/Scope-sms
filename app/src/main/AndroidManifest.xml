@@ -52,6 +52,49 @@
          and this app is already outside Play's SMS policy regardless. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- Phase 9. Normal permission; no prompt.
+         NOT here to restart ingestion — a manifest receiver already survives
+         reboot on its own once the app has been launched. It's here because a
+         reboot is when the things ingestion silently depends on change: SIMs get
+         re-read, and OEM battery managers re-apply their restrictions. This lets
+         BootCompletedReceiver check the app still works and say so if it doesn't. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Phase 9. Lets OemSettingsLauncher call PackageManager.resolveActivity()
+         against OEM system apps (Phone Master, MIUI Security, ...) to find out
+         which autostart screen actually exists on this device.
+         Required because targetSdk 36 is well past API 30's package-visibility
+         filtering: without this, resolveActivity() returns null for every OEM
+         component and the guidance screen would silently degrade to
+         instructions-only on every device — including the ones where the
+         deep link works fine.
+         QUERY_ALL_PACKAGES is deliberately NOT used: it's the blunt instrument
+         Play restricts, and we only need to see a handful of known components,
+         which <queries> below names explicitly. -->
+    <queries>
+        <!-- Transsion (Tecno / Infinix / itel) — the primary target market.
+             Three packages, not one: Phone Master hosts autostart on Tecno and
+             Infinix, HiManager is a *separate app* that hosts itel's version,
+             and himgr ships standalone on some Infinix builds. Declaring a
+             package makes all of its activities visible, which covers the
+             action-based lookups too. -->
+        <package android:name="com.transsion.phonemaster" />
+        <package android:name="com.transsion.phonemanager" />
+        <package android:name="com.cyin.himgr" />
+        <!-- Xiaomi (MIUI / HyperOS). -->
+        <package android:name="com.miui.securitycenter" />
+        <!-- Oppo / Realme (ColorOS). -->
+        <package android:name="com.coloros.safecenter" />
+        <package android:name="com.oppo.safe" />
+        <!-- Vivo (Funtouch / OriginOS). -->
+        <package android:name="com.vivo.permissionmanager" />
+        <package android:name="com.iqoo.secure" />
+        <!-- Huawei (EMUI). -->
+        <package android:name="com.huawei.systemmanager" />
+        <!-- Samsung (One UI). -->
+        <package android:name="com.samsung.android.lool" />
+    </queries>
+
     <!-- Telephony is required, not optional: an SMS-ingestion app is useless on
          a device without it. Declared explicitly so the requirement is visible
          rather than implied by the permissions above. -->
@@ -83,6 +126,36 @@
 
         <!-- Phase 2 registers the SMS_RECEIVED receiver here. Not declared in
              Phase 1: naming a class that doesn't exist yet fails the build. -->
+
+        <!--
+          Phase 9 — post-reboot health check.
+
+          exported="true" is required: the sender is the OS.
+
+          Deliberately NO android:permission here, unlike the SMS receiver above.
+          There is no BROADCAST_BOOT_COMPLETED permission in the platform — SMS
+          has BROADCAST_SMS, boot has no equivalent. Naming one anyway would not
+          be harmless: an android:permission that no caller can hold blocks
+          *every* sender including the system, so the receiver would simply never
+          fire and the health check would silently never run. That is the exact
+          class of invisible failure this phase exists to catch.
+
+          What actually protects it: BOOT_COMPLETED is a protected broadcast in
+          AOSP's framework manifest, so only the system can send it — the
+          guarantee is in the platform, not in this file. QUICKBOOT_POWERON is a
+          non-AOSP OEM action and is NOT protected, so any app could send it;
+          the worst that buys an attacker is one extra health check, and
+          BootCompletedReceiver validates the action either way.
+        -->
+        <receiver
+            android:name=".reliability.BootCompletedReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

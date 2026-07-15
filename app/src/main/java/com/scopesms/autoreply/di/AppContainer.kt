@@ -4,6 +4,9 @@ import android.content.Context
 import com.scopesms.autoreply.ScopeSmsApplication
 import com.scopesms.autoreply.data.settings.SettingsRepository
 import com.scopesms.autoreply.data.system.BatteryOptimizationManager
+import com.scopesms.autoreply.reliability.OemSettingsLauncher
+import com.scopesms.autoreply.reliability.ReliabilityInspector
+import com.scopesms.autoreply.reliability.ReliabilityNotifier
 import com.scopesms.autoreply.telephony.AndroidSimReader
 import com.scopesms.autoreply.telephony.SimReader
 import kotlinx.coroutines.CoroutineScope
@@ -60,6 +63,22 @@ class AppContainer(context: Context) {
     val batteryOptimization: BatteryOptimizationManager by lazy {
         BatteryOptimizationManager(appContext)
     }
+
+    // --- Phase 9: reliability hardening ------------------------------------
+
+    val reliabilityInspector: ReliabilityInspector by lazy {
+        ReliabilityInspector(appContext, settings, simReader, batteryOptimization)
+    }
+
+    val reliabilityNotifier: ReliabilityNotifier by lazy { ReliabilityNotifier(appContext) }
+
+    /**
+     * Resolved lazily like everything else, which matters more here than it
+     * looks: this one queries the PackageManager on construction of its intent
+     * list, and `BootCompletedReceiver` never touches it. Building it eagerly
+     * would put a package lookup on every headless process start.
+     */
+    val oemSettingsLauncher: OemSettingsLauncher by lazy { OemSettingsLauncher(appContext) }
 
     companion object {
         /**
