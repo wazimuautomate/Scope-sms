@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cloud backup is already off via android:allowBackup="false", so this file is
+  belt-and-braces for Android 11 (API 30) devices, where allowBackup governs
+  the whole behaviour.
+
+  Nothing here should ever be backed up: the Room database holds customer
+  names, phone numbers and M-Pesa transaction data, and the encrypted prefs
+  hold the SCOPE gateway API key. CLAUDE.md's security notes keep that data
+  on-device.
+-->
+<full-backup-content>
+    <exclude domain="root" />
+    <exclude domain="database" />
+    <exclude domain="sharedpref" />
+    <exclude domain="file" />
+</full-backup-content>

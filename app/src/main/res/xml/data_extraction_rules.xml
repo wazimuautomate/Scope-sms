@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Governs cloud backup and device-to-device transfer on API 31+.
+
+  Both are excluded. Beyond the privacy argument (see backup_rules.xml), the
+  gateway API key is stored under a hardware-backed key that does not leave
+  the device — restoring those prefs onto a new handset would hand the app
+  ciphertext it cannot decrypt, which is worse than starting clean.
+
+  Consequence worth remembering: the agent switching phones re-enters their
+  gateway credentials and loses their rules/templates. If that becomes a real
+  complaint, the answer is an explicit in-app export/import, not turning these
+  rules back on. Logged in memory.md.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+    </device-transfer>
+</data-extraction-rules>

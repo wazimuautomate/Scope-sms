@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches LightBackground in ui/theme/Color.kt, so the pre-Compose
+         window and the first composed frame are the same colour and the
+         launch doesn't flash. values-night/ overrides this for dark mode. -->
+    <color name="window_background">#FDF8F9</color>
+</resources>

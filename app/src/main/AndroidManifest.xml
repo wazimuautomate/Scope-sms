@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Phase 0 declares NO permissions on purpose.
+
+      Phase 1 owns the permission set (RECEIVE_SMS, READ_SMS, READ_PHONE_STATE,
+      POST_NOTIFICATIONS, INTERNET) and its runtime request flow — see
+      BUILD-PLAN.md Phase 1. Declaring them here would only create merge
+      conflicts with that work.
+
+      One permission must NEVER appear in this file: SEND_SMS. All outbound
+      messages go through the SCOPE SMS HTTP gateway using the registered
+      sender ID, never SmsManager. See CLAUDE.md constraint 3.
+    -->
+
+    <application
+        android:name=".ScopeSmsApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ScopeSms">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.ScopeSms">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
