@@ -11,7 +11,7 @@
 | Phase | Scope | State |
 | --- | --- | --- |
 | **0** | Repo, scaffolding & CI pipeline | ✅ **Done** — CI green, APK artifact verified downloadable |
-| 1 | Permissions & SIM identification | Not started |
+| 1 | Permissions & SIM identification | 🔨 In progress (parallel session) — code on `feature/phase-1-permissions-sim` |
 | 2 | SMS ingestion & M-Pesa parser | Not started |
 | 3 | Rules engine + in-memory cache | Not started |
 | 4 | Two message template types | Not started |
@@ -20,7 +20,7 @@
 | 6 | Independent notification toggles | Not started |
 | 7 | Compose UI | Not started |
 | 8 | Activity log & dashboard stats | Not started |
-| 9 | Reliability hardening | Not started |
+| 9 | Reliability hardening | 🟡 **Code done, CI green — exit criteria UNMET.** Every one needs a real device. See below. |
 | 10 | Cross-version testing | Not started |
 | 11 | Release packaging & distribution | Not started |
 
@@ -76,6 +76,164 @@ We have **exactly one** real till-confirmation sample (in CLAUDE.md).
 BUILD-PLAN Phase 2 requires 5–10 more real redacted samples from the agent
 before the regex is finalised. **This is a hard blocker for Phase 2** — one
 sample cannot validate variant handling. Someone needs to ask the client.
+
+---
+
+## Phase 9 — reliability hardening (branch `feature/phase-9-reliability-hardening`)
+
+**Built on `feature/phase-1-permissions-sim`, not `main`** — a deliberate break
+from workflow rule 2, because Phase 9 consumes Phase 1's `SettingsRepository`,
+`SimReader` and `BatteryOptimizationManager`, and `main` has only Phase 0. There
+was nothing on `main` to build against. **Merge order: Phase 1 first, then this.**
+
+CI green (run 29452472972): 64 tests, 0 failures, APK artifact built. 29 of those
+tests are Phase 9's.
+
+### 🔴 Exit criteria are NOT met, and cannot be met from CI
+Every one of Phase 9's exit criteria is real-device work, and **none has been
+run**: the 24-hour idle soak on a Transsion device, the reboot pass, and the
+airplane-mode queue test. What exists is the code they will exercise. **Do not
+mark Phase 9 done on a green CI run** — a green run here means "it compiles and
+the pure logic is right", which is precisely the half of this phase that was
+never in doubt.
+
+The airplane-mode criterion is also **blocked on Phase 5b** — there is no
+outbound queue to test yet.
+
+### DEVIATION: the plan's two boot-check tasks were already solved by Phase 1
+BUILD-PLAN Phase 9 asks the boot receiver to "re-verify battery-exemption status
+and that saved SIM subscription IDs are still valid after reboot". Neither is
+possible, because Phase 1 persists neither:
+
+- **Subscription IDs are never stored.** `SimSelection` stores the agent's choice
+  by *physical slot*, and its KDoc cites this exact Phase 9 line as the reason.
+  The reorder the plan fears cannot corrupt the setting.
+- **Exemption status is never stored.** `BatteryOptimizationManager.isExempt()`
+  reads `PowerManager` live and explicitly refuses to cache, so there is no stale
+  copy to re-verify.
+
+Phase 1 read the plan and designed the problem away — the right outcome, worth
+noticing rather than papering over with a check that re-validates nothing.
+`ReliabilityCheck` therefore checks the **equivalent conditions that can still
+happen**, which is what the plan was actually reaching for:
+
+| Checked | Why it matters |
+| --- | --- |
+| Watched slot holds no SIM | **The headline case.** Agent moves the business SIM to the other tray → `SimFilter` correctly drops *every* message as `UNWATCHED_SIM` → app looks perfectly healthy while replying to nobody. |
+| Required permission revoked | Android 11 — **our minSdk** — auto-resets permissions for unused apps. An agent back from a long trip has a configured-looking app holding no SMS permission. |
+| No SIM readable | Blocking, obviously. |
+| Battery exemption missing | `DEGRADED`, not blocking: works awake, dies once the screen's been off. |
+
+### Design decisions worth not relitigating
+- **Pure logic in `domain/reliability/`, Android boundary in `reliability/`.**
+  `ReliabilityCheck` takes a frozen `ReliabilitySnapshot` and returns issues, so
+  all 16 of its tests run on the JVM. No Robolectric → **CI stays on JDK 17**
+  (see the Robolectric/JDK-21 gotcha below). `reliability/` is top-level for the
+  same reason `queue/` is: it's a reliability boundary and burying it hides it.
+- **SIM findings are suppressed when READ_PHONE_STATE is denied.** `SimReader`
+  returns an empty list for *both* "denied" and "no SIM" and cannot tell them
+  apart. Believing it would tell an agent to reseat a perfectly good SIM while
+  the real fault (the revoked permission) sits correctly diagnosed one line
+  above. One fault must produce one true alarm.
+- **A partially-present selection is left alone.** Watch {0,1}, pull SIM 2 → slot
+  0 still ingests. That's a working app and pulling a SIM is usually deliberate.
+  Only a selection with *nothing* behind it is an outage.
+- **Notification channel `health` at IMPORTANCE_HIGH.** Intrusive on purpose: it
+  only ever fires when the agent is already losing money, and it's self-limiting
+  (silent when healthy, gone once fixed). **Phase 8's send-failure alerts must
+  use a different channel** — muting "a reply failed" must not also mute "the app
+  has stopped working".
+- **Boot receiver has NO `android:permission`.** There is no
+  `BROADCAST_BOOT_COMPLETED` permission (SMS has `BROADCAST_SMS`; boot has no
+  equivalent). Naming one anyway is not harmless — a permission no caller can
+  hold blocks the *system* too, so the receiver would never fire and the health
+  check would silently never run. `BOOT_COMPLETED` is a protected broadcast in
+  AOSP, so the platform provides the guarantee. `QUICKBOOT_POWERON` (non-AOSP,
+  some OEM fast-boot builds) is *not* protected — hence the action check in code.
+
+### 🔴 OEM autostart component names are UNVERIFIED — Transsion most of all
+BUILD-PLAN is right that "no code fix solves this, only user settings + clear
+instructions", so the design inverts the usual priority: **the written steps are
+the contract; the deep links are a probed, disposable convenience.** Nothing
+breaks when a link is absent — that is the expected case on most phones.
+
+Manual paths are from `dontkillmyapp.com` (matches the OEMs' own UI wording).
+Component names come from the maintained libraries (`judemanutd/AutoStarter`,
+`chris-wolf/autostart_settings`, Threema, pano-scrobbler).
+
+**The Transsion entries are the weakest evidence and the most important market.**
+They appear in ~12 repos, but those repos largely copy one another — popularity,
+not independent confirmation — and `AutoStarter`, the most-used of the set, has
+**no Transsion entry at all**. No decompiled manifest proving the activity exists
+and is exported could be found. **Someone must install a CI APK on the agent's
+real Tecno/Infinix and see which candidate actually resolves.** Order tried:
+`com.transsion.phonemaster/com.cyin.himgr.autostart.AutoStartActivity` → action
+`…AUTO_START_ACTIVITY` → `com.transsion.phonemanager/…AutoBootMgrActivity` (itel's
+separate app) → two weaker guesses → Phone Master's launcher.
+
+Gotchas that cost real debugging if forgotten:
+- **`<queries>` is mandatory, not hygiene.** Android 11+ package visibility makes
+  `resolveActivity()` return `null` for any undeclared package — so a component
+  missing from the manifest can never resolve, on any device, and it looks
+  identical to "this phone doesn't have that screen". `OemAutostartGuideTest`
+  fails the build on this; it already caught the missing
+  `com.transsion.phonemanager`, i.e. itel's entire autostart path.
+- **`OemSettingsLauncher.open()` catches `Exception`, not
+  `ActivityNotFoundException`.** HiOS/XOS ship system activities that *resolve*
+  but aren't exported and throw `SecurityException` on launch — a crash on
+  exactly the handsets the screen exists for.
+- **Match `Build.BRAND` + `Build.MANUFACTURER` together.** Transsion reports
+  `MANUFACTURER` inconsistently; matching it alone drops real Tecnos into
+  `GENERIC`.
+- **OnePlus's `com.oneplus.security` chain-launch screen is deliberately absent** —
+  reported broken from Android 11, which is this app's *minimum*, so it could
+  never work for a single user. Modern OnePlus runs ColorOS anyway.
+- **Huawei (PowerGenie, EMUI 9+) and Samsung ("Sleeping apps") have traps no deep
+  link or exemption fixes.** Both carry a `caveat` string saying so, because an
+  agent whose replies keep dying needs to be told the phone is the problem rather
+  than retry steps that cannot work.
+
+### Bug caught by its own test (worth remembering)
+`watched.none { it in activeSlots }` is **vacuously true on an empty set**, so a
+`SimSelection.Slots(emptySet())` fell into the missing-SIM branch and rendered
+*"You told Scope SMS to watch , but those slots are empty."* Went red on the
+first CI run and is now guarded. Near-unreachable (`decode()` maps empty →
+DEFAULT) but an unreachable branch emitting a broken sentence is a bug waiting
+for someone to make it reachable.
+
+### Left for other phases, deliberately
+- **"Malformed SMS: log and skip, never crash"** (a Phase 9 bullet) is **Phase
+  2's** parser and receiver. Implementing it from here would collide head-on with
+  that live session. Phase 2 owns it; this is a flag, not a hand-off.
+- **UI is stateless composables only** (`ui/reliability/OemGuidanceSection.kt` —
+  `OemGuidanceSection`, `ReliabilityIssueCard`). No screen, no ViewModel, no
+  navigation: **Phase 7 owns screens** and is being built in parallel against a UI
+  spec this session cannot see (`01-UI-DESIGN-PROMPT.md` is still missing from the
+  repo). Wiring instructions are in the file's KDoc.
+
+---
+
+## 🔴 Process: parallel sessions are sharing ONE working directory
+
+Phase 9's session found this the hard way and it will bite everyone until fixed.
+All the "parallel" sessions are operating in the same checkout at
+`c:\Users\ADMIN\OneDrive\Desktop\Scope sms`, which has **one git HEAD**. Mid-session,
+another agent ran `git checkout -b feature/phase-2-sms-ingestion-parser`, which
+**moved this session's branch out from under it** — Phase 9's uncommitted work
+was then sitting on Phase 2's branch, mixed into Phase 2's manifest edits.
+
+Nothing was lost (Phase 2's tree was handed back untouched, Phase 9 moved to a
+worktree), but the next collision could silently commit one phase's work onto
+another's branch, and neither session would notice.
+
+**Use `git worktree` — one per session:**
+```
+git worktree add ../scope-sms-phase-N feature/phase-N-slug
+```
+Each session gets its own directory and its own HEAD; the shared `.git` still
+holds every branch. It also *locks* the branch — a branch checked out in a
+worktree cannot be checked out elsewhere, so the collision becomes impossible
+rather than merely unlikely.
 
 ---
 
@@ -272,7 +430,15 @@ automatically. Cosmetic; worth raising with the client before Phase 11.
 2. **Phase 0's test step exceeds the plan.** The plan permits a trivially
    passing test; we ship real architecture guards instead. Strictly more than
    asked for, but justified by the parallel-session risk.
-3. **Doc filenames don't match the docs' own references.** `CLAUDE.md` and
+3. **Phase 9's boot check doesn't do what the plan literally says** — it can't;
+   Phase 1 persists neither the subscription IDs nor the exemption status the
+   plan asks it to re-validate. It checks the equivalent live conditions
+   instead. Full reasoning in the Phase 9 section above.
+4. **Phase 9 branched from `feature/phase-1-permissions-sim`, not `main`**
+   (workflow rule 2 says `main`). Phase 9 depends on Phase 1's classes and
+   `main` has only Phase 0 — there was nothing to build against. Merge Phase 1
+   first.
+5. **Doc filenames don't match the docs' own references.** `CLAUDE.md` and
    `BUILD-PLAN.md` both refer to **`02-BUILD-PLAN.md`** (actual file:
    `BUILD-PLAN.md`) and **`01-UI-DESIGN-PROMPT.md`**, which **does not exist in
    the repo at all**. The UI spec Phase 7 is told to implement is therefore

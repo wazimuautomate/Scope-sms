@@ -4,6 +4,61 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-16 — Phase 9: Reliability hardening 🟡 code done, exit criteria unmet
+
+**Branch:** `feature/phase-9-reliability-hardening` (cut from
+`feature/phase-1-permissions-sim`, **not** `main` — Phase 9 uses Phase 1's
+classes and `main` has only Phase 0). **Merge Phase 1 first.**
+**CI:** ✅ green — run 29452472972, 64 tests / 0 failures, debug APK built.
+
+### Built
+- **Boot health check** — `BootCompletedReceiver` → `ReliabilityInspector` →
+  pure `domain/reliability/ReliabilityCheck`. Detects a revoked permission, no
+  SIM, a watched slot with no SIM in it, and a missing battery exemption; warns
+  the agent via a `health` notification channel. Silent when healthy.
+- **OEM autostart guidance** — per-OEM instructions (Transsion / Xiaomi /
+  ColorOS / Vivo / Huawei / Samsung / generic) plus best-effort deep links,
+  probed at runtime and discarded when absent.
+- **UI** — stateless composables only (`OemGuidanceSection`,
+  `ReliabilityIssueCard`) for Phase 7 to place. No screen, no ViewModel.
+- **29 JVM tests**, no Robolectric (CI stays on JDK 17).
+
+### 🔴 Not done — Phase 9's exit criteria are all real-device work
+The 24h Transsion soak test, the reboot pass, and the airplane-mode queue test
+have **not been run**. Green CI here proves the code compiles and the pure logic
+is right — the half that was never in doubt. The airplane-mode criterion is also
+blocked on Phase 5b (no outbound queue exists yet). **Phase 9 is not done.**
+
+### Found
+- **The plan's boot-check tasks were already solved by Phase 1.** BUILD-PLAN asks
+  the receiver to re-validate saved subscription IDs and saved exemption status;
+  Phase 1 persists neither, on purpose, citing this same Phase 9 line. Checks the
+  equivalent live conditions instead — chiefly "the watched slot has no SIM in
+  it", where `SimFilter` correctly drops every message and the app looks healthy
+  while replying to nobody.
+- **🔴 Transsion component names are unverified** and it's the primary market. The
+  ~12 repos carrying them largely copy each other, and the most-used library has
+  no Transsion entry at all. Needs the agent's real Tecno/Infinix to settle. The
+  written instructions are the contract precisely because of this.
+- **A bug caught by its own test:** `none {}` is vacuously true on an empty set,
+  so an empty SIM selection rendered *"You told Scope SMS to watch , but those
+  slots are empty."* Red on the first CI run, then fixed.
+- **🔴 Parallel sessions share one working directory and one git HEAD.** Another
+  agent's `git checkout -b` moved this session's branch mid-work; Phase 9's
+  uncommitted files ended up on Phase 2's branch. Nothing lost — Phase 2's tree
+  was handed back untouched and Phase 9 moved to a `git worktree`. **Every
+  session should use its own worktree**; see memory.md.
+
+### Raised for the client / next sessions
+- Someone must install a CI APK on the agent's **real Tecno/Infinix** and report
+  which autostart screen opens (or that none does).
+- **Phase 8:** use a *different* notification channel for send failures — muting
+  "a reply failed" must not mute "the app has stopped working".
+- **Phase 2** owns "malformed SMS: log and skip, never crash" (a Phase 9 bullet)
+  — left alone to avoid colliding with that live session.
+
+---
+
 ## 2026-07-15 — Phase 0: Repository, scaffolding & CI pipeline ✅
 
 **Branch:** `feature/phase-0-scaffold-ci` → merged to `main`
