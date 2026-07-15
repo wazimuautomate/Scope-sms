@@ -1,12 +1,9 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-
-    // Phase 8 — Room's annotation processor. KSP, never kapt: kapt is
-    // incompatible with AGP 9's built-in Kotlin (memory.md). First use of this
-    // catalog pin, so this push is what proves KSP 2.3.10 resolves against
-    // AGP 9.2.1 — the catalog flags every "later phases" entry as researched but
-    // never exercised by a build.
+    // Room's annotation processor, needed by Phase 5b (OutboundJob) and Phase 8
+    // (ActivityLogEntry) alike. KSP, never kapt: kapt is incompatible with
+    // AGP 9's built-in Kotlin (see memory.md).
     alias(libs.plugins.ksp)
 }
 
@@ -100,17 +97,25 @@ android {
         // ArchitectureGuardTest. Off by default since AGP 8.
         buildConfig = true
     }
+
+    // Deliberately no `testOptions { unitTests { isReturnDefaultValues = true } }`.
+    // Phase 5's gateway logic and Phase 5b's queue rules are pure Kotlin behind
+    // ports precisely so they test on the JVM without an Android runtime.
+    // Returning defaults would let a stray android.* call quietly return null
+    // instead of failing with "not mocked", hiding the day that property breaks.
+    //
+    // Phase 8 note: that JVM-pure preference still holds and should — but Phase
+    // 8's DAO tests do need a real SQLite, so Robolectric is now present and CI
+    // has moved to JDK 21 (see build.yml). Keep new engine logic JVM-pure
+    // regardless; Robolectric is for the code that genuinely needs Android.
 }
 
-// Phase 8 — Room. Writes the schema JSON to app/schemas/, which is committed:
-// it's what makes a migration test possible later and what puts a schema change
-// in the diff instead of hiding it behind annotations. ScopeSmsDatabase has no
-// destructive-migration fallback on purpose, so this is the record a future
-// migration is written against.
+// Room's schema export. data/README.md is explicit that a shipped build must
+// never use fallbackToDestructiveMigration() — once the agent is live, a
+// destructive migration throws away their bundle rules and activity history.
+// Real migrations need the schema JSON committed, so export it from the start.
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
-    // Room's own recommendation, and it matters here: it moves query errors from
-    // "we hope no one ever inserts a bad row" to a build failure.
     arg("room.generateKotlin", "true")
 }
 
@@ -138,22 +143,41 @@ dependencies {
     // never resolved by a build), so this push is what confirms it exists.
     implementation(libs.androidx.datastore.preferences)
 
-    // Phase 8 — activity log + dashboard stats. room-ktx supplies the coroutine
-    // and Flow support the DAO returns. Phases 3 and 5b add their tables to the
-    // same database (see ScopeSmsDatabase) and need no extra dependency here.
+    debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // --- Phase 5 — SCOPE SMS gateway client -------------------------------
+    // Retrofit over Ktor: the catalog already researched and pinned it, the
+    // gateway is three plain JSON POSTs (no streaming, no websockets), and
+    // OkHttp is the better-understood client on the low-end Android 11 devices
+    // this ships to. Choice recorded in memory.md.
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.moshi)
+    implementation(libs.okhttp)
+    implementation(libs.moshi.kotlin)
+
+    // --- Room — Phase 5b (OutboundJob) + Phase 8 (ActivityLogEntry) --------
+    // One set of Room deps for both phases; they share a single AppDatabase.
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-    debugImplementation(libs.androidx.compose.ui.tooling)
+    // --- Phase 5b — outbound queue ----------------------------------------
+    implementation(libs.androidx.work.runtime.ktx)
 
+    // --- Test -------------------------------------------------------------
     testImplementation(libs.junit)
+    testImplementation(libs.truth)
+    testImplementation(libs.kotlinx.coroutines.test)
 
-    // Phase 8 — the log/stats tests use a real in-memory SQLite via Room, so the
-    // SQL in ActivityLogDao is executed rather than trusted. That needs
-    // Robolectric, and Robolectric against SDK 36+ needs JDK 21 — the CI workflow
-    // is bumped to 21 in this branch. See memory.md.
+    // Coordinate renamed in OkHttp 5.x — mockwebserver3-junit4, not the old
+    // com.squareup.okhttp3:mockwebserver (see memory.md).
+    testImplementation(libs.mockwebserver3.junit4)
+
+    // Phase 8 — the log/stats tests run ActivityLogDao's SQL against a real
+    // in-memory SQLite rather than trusting it: a wrong column name or a bad
+    // boolean-sum idiom compiles fine and returns confidently wrong numbers on
+    // the agent's dashboard. That needs Robolectric, and Robolectric against
+    // SDK 36+ needs JDK 21 — build.yml is bumped to 21. See memory.md.
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.room.testing)
-    testImplementation(libs.kotlinx.coroutines.test)
 }

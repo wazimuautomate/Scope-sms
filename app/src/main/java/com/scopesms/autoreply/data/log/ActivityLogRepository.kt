@@ -42,6 +42,9 @@ class ActivityLogRepository(
      * self-correcting on the next open — the alternative, a timer that
      * invalidates the query at midnight, is machinery for a case that doesn't
      * hurt anyone.
+     *
+     * Not a `val` for that reason: each call re-reads the clock, so re-collecting
+     * on the next screen open gets the current day.
      */
     fun statsForToday(): Flow<DashboardStats> {
         val zone = clock.zone

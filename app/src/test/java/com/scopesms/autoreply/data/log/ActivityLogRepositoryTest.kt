@@ -1,7 +1,7 @@
 package com.scopesms.autoreply.data.log
 
 import androidx.room.Room
-import com.scopesms.autoreply.data.db.ScopeSmsDatabase
+import com.scopesms.autoreply.data.AppDatabase
 import com.scopesms.autoreply.domain.log.MatchType
 import com.scopesms.autoreply.domain.log.NotifyStatus
 import com.scopesms.autoreply.domain.money.KshAmount
@@ -35,7 +35,7 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class ActivityLogRepositoryTest {
 
-    private lateinit var db: ScopeSmsDatabase
+    private lateinit var db: AppDatabase
     private lateinit var repository: ActivityLogRepository
 
     /** 2026-07-16 10:00 in Nairobi (UTC+3). */
@@ -51,7 +51,7 @@ class ActivityLogRepositoryTest {
         // catalog doesn't carry and no build has ever resolved.
         db = Room.inMemoryDatabaseBuilder(
             RuntimeEnvironment.getApplication(),
-            ScopeSmsDatabase::class.java,
+            AppDatabase::class.java,
         ).build()
         repository = ActivityLogRepository(db.activityLogDao(), clock)
     }
