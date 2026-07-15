@@ -15,8 +15,8 @@
 | 2 | SMS ingestion & M-Pesa parser | Not started |
 | 3 | Rules engine + in-memory cache | Not started |
 | 4 | Two message template types | Not started |
-| 5 | SCOPE SMS gateway client | Not started |
-| 5b | Outbound queue & burst-speed | Not started |
+| **5** | SCOPE SMS gateway client | ✅ **Done** — CI green, all exit criteria met |
+| **5b** | Outbound queue & burst-speed | 🟡 **Code complete, criterion partly blocked** — queue proven; end-to-end needs Phases 2–4. See below. |
 | 6 | Independent notification toggles | Not started |
 | 7 | Compose UI | Not started |
 | 8 | Activity log & dashboard stats | Not started |
@@ -27,6 +27,38 @@
 ---
 
 ## 🔴 Open decisions — resolve before the owning phase ships
+
+### 0. 🔴 Phase 5b's headline exit criterion is only PARTLY met (owned by Phase 2/3/4)
+Phase 5b is code-complete and CI-green, but BUILD-PLAN's criterion — *"the
+single most important exit criterion in the whole plan"* — is not fully
+satisfied, and **Phase 5b must not be ticked off until it is.**
+
+The criterion asks for ~10 `SMS_RECEIVED` events in 1–3s each producing exactly
+one **correctly-templated** job. The burst is driven at the **queue boundary**
+(`OutboundQueueBurstTest`) rather than through a real broadcast, because the
+receiver (Phase 2), rules (Phase 3) and templates (Phase 4) did not exist when
+this was built — all three were in parallel sessions with nothing committed.
+
+**Proven now:** no drops (10 concurrent → 10 jobs), no duplicates (incl. a
+genuine 8-way race), no blocking of ingestion (enqueue never touches the
+network; a 30s hung gateway doesn't delay a 10-payment burst), one gateway call
+per payment, bounded retries, stranded-job recovery.
+
+**Not proven, and needing the other phases:**
+- *"correctly-templated"* — bodies are fixtures. Only the queue's half is
+  covered: the body handed to `enqueue` is stored byte-identical.
+- Real `SMS_RECEIVED` delivery and real OEM redelivery.
+
+**Whoever lands Phase 2:** wire the receiver → `OutboundQueue.enqueue` and
+re-run the burst end-to-end. That closes this. Until then Phase 5b is 🟡.
+
+### 0b. ⚠️ Phase 5 cannot actually send until Phase 1 declares `INTERNET`
+The manifest still declares **no permissions** — Phase 0 left the whole set to
+Phase 1 to avoid merge conflicts, and Phase 5 respected that rather than
+sneaking `INTERNET` in. Consequence: the gateway client is correct and fully
+tested, but on a real device every send fails until Phase 1 merges. Unit tests
+don't catch this (no manifest involved), so it will present as "the APK does
+nothing" on the first real-device test. Not a bug — just an ordering dependency.
 
 ### 1. How to store the gateway API key (blocks Phase 5/7) — IMPORTANT
 `androidx.security:security-crypto` (`EncryptedSharedPreferences`) is the
@@ -51,6 +83,15 @@ Whoever picks: record the choice here, and make sure the failure path is
 handled — a decrypt failure must prompt re-entry in Settings, not crash or
 silently stop sending.
 
+**Phase 5 update — this is no longer blocking, only pending.** The gateway reads
+credentials through a port, `network/GatewayCredentialsProvider`, which Phase 5
+deliberately left unimplemented. Nothing about the client, its failure mapping
+or its tests depends on where the key lives, so the decision doesn't need making
+to unblock work — it needs making before Settings (Phase 6/7) can capture the
+key. Implement that one interface and the gateway is wired. Returning `null`
+from it is a supported state (agent hasn't finished setup) and maps to a
+terminal failure rather than a crash or a retry loop.
+
 ### 2. targetSdk 36 vs 37 (owned by Phase 10)
 Currently `compileSdk = 37`, `targetSdk = 36`. See "SDK levels" below for the
 full reasoning. Phase 10 should evaluate 37 against a real Android 17 device.
@@ -65,6 +106,20 @@ established yet. First phase that needs it decides and records it here.**
 Constraint to respect: a `BroadcastReceiver` is constructed by the system, so
 the object graph must be reachable from process scope. See
 `app/src/main/java/com/scopesms/autoreply/di/README.md`.
+
+**Phase 5 update — STILL OPEN. Phase 5b did not decide it, on purpose.**
+`SendJobWorker` needs an `OutboundQueue`, and WorkManager constructs workers
+reflectively, so it hit the same process-scope problem. Rather than settle the
+project's DI style from a phase with exactly one binding — while Phase 3/4 was
+running in parallel and is the likelier owner — Phase 5b added
+`queue/QueueGraph`: one nullable slot, `install()` + `outboundQueue()`, no
+framework. `di/` is untouched and still empty.
+
+**Whoever decides:** absorb or delete `QueueGraph`. `SendJobWorker` is its only
+reader and nothing else references it. Have the real container call
+`QueueGraph.install { … }` from `ScopeSmsApplication.onCreate`, or replace the
+call site outright — either is a few lines. It exists so Phase 5b could ship
+without pre-empting you, not to constrain you.
 
 ### 4. Default state of the two notification toggles (owned by Phase 6)
 BUILD-PLAN explicitly says confirm with the agent, don't assume. Starting
@@ -184,7 +239,114 @@ vacuously.
 
 ---
 
+## Decisions made in Phase 5 / 5b (and why)
+
+### HTTP client: Retrofit + OkHttp + Moshi (BUILD-PLAN asked us to pick and record)
+Retrofit over Ktor. The catalog had already researched and pinned it; the gateway
+is three plain JSON POSTs with no streaming or websockets; and OkHttp is the
+better-understood client on the low-end Android 11 handsets this ships to.
+Ktor's advantages (multiplatform, engine-swapping) buy this app nothing.
+
+### 🔴 Moshi uses REFLECTION, not codegen — and that's why there are R8 rules
+`KotlinJsonAdapterFactory` (`moshi-kotlin`), **not** `moshi-kotlin-codegen`.
+Reason: Moshi 1.15.2's codegen is written against the KSP1 API, and the catalog
+pins **KSP 2.3.10 (KSP2)**. Moshi-on-KSP2 is a known rough edge and CI is the
+only compiler here — a wrong guess costs a red run and blocks whoever is waiting.
+Reflection has no processor risk at all.
+
+**The cost, and it's a real one:** R8 can't see reflective field reads, so
+without keep rules it renames `senderId` → `a` and the gateway silently receives
+JSON it doesn't understand. **That breaks in release only — every debug CI run
+stays green.** Handled by `@Keep` on the models plus rules in
+`proguard-rules.pro`. Phase 11: run a release build through CI *early*, not at
+tag time. Also pulls `kotlin-reflect` (~1–2 MB pre-shrink); revisit codegen if
+APK size ever matters, or once Moshi ships proper KSP2 support.
+
+### `InsufficientBalance` is classified RETRYABLE — the one judgement call
+Everything else in `SendFailure` is obvious (bad key/sender ID = terminal; 429,
+5xx, timeout, no-connectivity = retryable). Balance is genuinely arguable: no
+retry succeeds until the agent tops up, which argues terminal.
+
+Called retryable because unlike a bad key, *nothing is misconfigured* — the
+top-up takes a minute from the agent's own phone, and the customer is still
+waiting on their prices. Bounded retries (5, ~10 min against WorkManager's
+backoff) cover the realistic case; if they run out the job lands `FAILED` with
+"top up to resume sending", which is exactly the signal needed. **Revisit if the
+agent reports the queue thrashing on an empty balance.**
+
+### Dedupe is a unique DB index, not a Kotlin-side check
+`OutboundJob` has a unique index on `transactionCode`; the DAO uses
+`OnConflictStrategy.IGNORE`. A read-then-write guard in application code races:
+under the ~10-in-1–3s burst, two deliveries of one transaction can both see "no
+row" before either inserts, and the customer gets two SMS at the agent's expense.
+SQLite resolves it atomically instead. **Verified, not assumed** — see below.
+
+### Queue rules are pure Kotlin behind a port (`OutboundJobStore`)
+Room's generated code needs an Android runtime, so testing the queue through the
+DAO would mean Robolectric → **JDK 21** → bumping the whole CI pipeline for one
+test (the trap already flagged below). Instead the rules live above a port and
+test on the JVM in ~2.5s; `RoomOutboundJobStore` is a thin adapter with no logic.
+Keeps CI on JDK 17 and the safety net fast.
+
+### The drain is sequential, deliberately
+Parallel sends buy nothing: the worst case is ~10 messages against a 100/min
+limit, so concurrency mainly raises the odds of tripping a 429. The burst
+requirement is about never blocking *ingestion*, which `enqueue` already
+guarantees by returning before any network call.
+
+### `AppDatabase` was created by Phase 5b but is NOT owned by it
+`data/README.md` gives the DB four owners (Phases 3, 4, 5b, 8). Phase 5b was
+simply the first to need Room, and neither parallel session had committed
+anything. The file carries merge instructions in its class doc: add your entity,
+add your DAO accessor, bump the version, commit the schema JSON. **If you hit an
+add/add conflict: keep both entity lists and both DAO accessors.** Nothing there
+is Phase-5b-specific beyond the `OutboundJob` lines.
+
+`fallbackToDestructiveMigration()` is deliberately absent and schema export is on
+from v1, per `data/README.md`.
+
+### Verified, not assumed: the burst test actually fails when the guarantee breaks
+Following Phase 0's precedent with `ArchitectureGuardTest`. A scratch branch
+(`chore/verify-burst-dedupe-guard`, since deleted) replaced the fake store's
+atomic insert with a check-then-insert race; CI went red on exactly
+`simultaneous redelivery of one payment still produces exactly one job`
+(42 tests, 1 failed). A concurrency test that has never failed is not known to
+detect a race — it may simply never have hit the window.
+
+---
+
 ## Gotchas discovered (save the next session the debugging)
+
+### ✅ The "later phases" catalog entries are now CI-verified (was: unverified)
+The caveat below said an unused catalog pin stays silent until first use. Phase
+5/5b used most of them and **they all resolve and compile together**: Retrofit
+3.0.0, OkHttp 5.4.0, Moshi 1.15.2, Room 2.8.4, KSP 2.3.10, WorkManager 2.11.2,
+Truth 1.4.5, coroutines-test 1.11.0, mockwebserver3-junit4 5.4.0. Room + KSP 2.3.10
+under AGP 9's built-in Kotlin works. The renamed `mockwebserver3-junit4`
+coordinate is correct.
+
+**Still unexercised:** DataStore 1.2.1, Robolectric 4.16.1, room-testing.
+
+### `org.json` is an Android stub in unit tests — don't parse JSON with it
+`JSONObject` lives in `android.jar`, so in a JVM unit test it's a stub that
+throws "not mocked" (or silently returns defaults if anyone ever sets
+`isReturnDefaultValues = true` — which is why Phase 5 deliberately left that
+off; see the comment in `app/build.gradle.kts`). Assert on the JSON string or
+use Moshi directly. `ScopeSmsGatewayTest` proves the wire field names by
+serialising with Moshi, not by parsing with `JSONObject`.
+
+### Retrofit: return `Response<T>`, not `T`
+Declaring the API method as `suspend fun sendSms(...): T` makes Retrofit throw
+`HttpException` on any non-2xx, which erases the distinction between "retry this"
+and "the agent must fix their API key" — the whole point of `network/`. Returning
+`Response<T>` keeps the status code available to the failure mapping.
+
+### The gateway can report failure under HTTP 200
+It carries its own `response-code` in the body, and documented error bodies
+(invalid key, insufficient balance) can arrive under a 200. Trusting the HTTP
+status alone would mark those jobs `SENT` and lose the customer's SMS silently.
+`ScopeSmsGatewayTest` pins this. Note `response-code` is **hyphenated** on the
+wire — it can't be a Kotlin identifier, so it only works via `@Json(name=...)`.
 
 ### Windows authoring → Linux CI: `gradlew` line endings
 Repo is authored on Windows, built on Linux runners. Without `.gitattributes`
@@ -224,12 +386,17 @@ transitive Kotlin dependency.
 v3); use a separate `run: ./gradlew …` step. Note `gradle/actions` v6 changed
 how the caching component is licensed — worth a glance for commercial use.
 
-### Version catalog contains unverified entries
+### Version catalog contains unverified entries — ⚠️ MOSTLY SUPERSEDED
 Everything under "later phases" in `gradle/libs.versions.toml` (Room,
 WorkManager, DataStore, Retrofit, OkHttp, Moshi, Robolectric, Truth) is
 researched but **not exercised by any build** — Gradle never resolves an unused
 entry, so a wrong pin stays silent until first use. The phase that first uses
 one confirms it resolves.
+
+**Update (Phase 5/5b):** most are now CI-verified — see "The 'later phases'
+catalog entries are now CI-verified" above for the exact list. The principle
+still holds for **DataStore, Robolectric and room-testing**, which no build has
+touched yet.
 
 ---
 
@@ -266,6 +433,12 @@ automatically. Cosmetic; worth raising with the client before Phase 11.
 ---
 
 ## Deviations from the build plan (per workflow rule 7)
+
+0. **Phase 5b's burst test is driven at the queue boundary, not from a real
+   `SMS_RECEIVED` broadcast** — because Phases 2/3/4 don't exist yet. Everything
+   the queue owns is proven; "correctly-templated" and real broadcast delivery
+   are not. Flagged as open decision 0 above; Phase 5b stays 🟡 until closed.
+   This is the one deviation on this branch that a reader must not miss.
 
 1. **`targetSdk 36`, not "latest stable" (37)** — reasoned above, flagged for
    Phase 10. This is the only deviation from a stated constraint.

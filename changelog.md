@@ -4,6 +4,69 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-16 — Phase 5: SCOPE SMS gateway client ✅ · Phase 5b: outbound queue 🟡
+
+**Branch:** `feature/phase-5-gateway-queue` (PR open, CI green)
+**State:** Phase 5 complete. Phase 5b code-complete, headline criterion partly
+blocked on Phases 2–4 — **do not tick 5b off yet** (memory.md, open decision 0).
+
+Built in a git worktree off `main`, because this repo's working tree was sitting
+on the Phase 1 session's uncommitted changes.
+
+### Built — Phase 5 (`network/`)
+- **`ScopeSmsGateway`** over Retrofit/OkHttp/Moshi → `POST /sendsms`.
+- **Typed failure taxonomy** (`SendFailure`) splitting **retryable vs terminal** —
+  the property the queue branches on. Bad API key / unregistered sender ID are
+  terminal and surface to the agent; 429/5xx/timeout/offline retry.
+- **Errors are values, never exceptions** — the client cannot throw into the worker.
+- Phone normalisation from M-Pesa's `254…` to the gateway's documented local format.
+- Credentials behind a port; storage remains Phase 6/7's open decision.
+
+### Built — Phase 5b (`queue/`)
+- `OutboundJob` + DAO. **Dedupe enforced by a unique index on `transactionCode`**,
+  not a Kotlin-side check, which races under burst.
+- `OutboundQueue` — `enqueue` is one insert with no network; `drain` retries with
+  a bounded budget and reclaims jobs stranded by process death.
+- `SendJobWorker` on WorkManager with `NetworkType.CONNECTED`: a payment arriving
+  offline queues and sends when data returns.
+- `AppDatabase` created here (first phase to need Room) but **shared with Phases
+  3/4/8** — merge instructions in its class doc.
+
+### Exit criteria
+| Criterion | Result |
+| --- | --- |
+| Phase 5 — success, each documented error, timeout/no-connectivity | ✅ 42 tests, 0 failures, 0 skipped |
+| Phase 5b — no drops, no duplicates, no blocking of ingestion | ✅ at the queue boundary |
+| Phase 5b — "correctly-templated", real `SMS_RECEIVED` burst | 🟡 needs Phases 2–4 |
+
+### Verified, not assumed
+- **The burst test actually fails when the dedupe breaks.** Scratch branch
+  (`chore/verify-burst-dedupe-guard`, deleted) swapped the atomic insert for a
+  check-then-insert race; CI went red on exactly the race assertion. A
+  concurrency test that has never failed may simply never have hit the window.
+- **Tests ran non-vacuously** — 42 across 5 classes, verified from the CI report.
+
+### Decisions (full rationale in `memory.md`)
+- **Retrofit**, not Ktor. **Moshi via reflection**, not codegen — Moshi 1.15.2's
+  codegen is KSP1-era and the catalog pins KSP2; reflection has no processor
+  risk. Cost: R8 keep rules are now load-bearing, and R8 only runs in release.
+- **`InsufficientBalance` is retryable** — the one judgement call; a top-up takes
+  a minute and the customer is still waiting.
+- **DI still undecided** — `QueueGraph` is a one-slot seam, not a decision.
+  Phase 3 (or whoever) should absorb or delete it.
+
+### Raised for the next sessions
+- 🔴 **Phase 5b is not done.** Phase 2 must wire receiver → `OutboundQueue.enqueue`
+  and re-run the burst end-to-end.
+- ⚠️ **`INTERNET` is still not in the manifest** (Phase 1 owns it), so on a real
+  device every send fails until Phase 1 merges. Unit tests can't catch this; it
+  will look like "the APK does nothing".
+- ✅ **Most "later phases" catalog pins are now CI-verified** — Retrofit, OkHttp,
+  Moshi, Room, KSP, WorkManager, Truth, coroutines-test, mockwebserver3.
+  DataStore/Robolectric/room-testing still unexercised.
+
+---
+
 ## 2026-07-15 — Phase 0: Repository, scaffolding & CI pipeline ✅
 
 **Branch:** `feature/phase-0-scaffold-ci` → merged to `main`

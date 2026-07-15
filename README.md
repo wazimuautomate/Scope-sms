@@ -33,8 +33,8 @@ gateways.
 | 2 | SMS ingestion & M-Pesa parser | Not started |
 | 3 | Rules engine + in-memory cache | Not started |
 | 4 | Two message template types | Not started |
-| 5 | SCOPE SMS gateway client | Not started |
-| 5b | Outbound queue & burst-speed architecture | Not started |
+| **5** | SCOPE SMS gateway client | ✅ Done |
+| **5b** | Outbound queue & burst-speed architecture | 🟡 Code complete — burst criterion needs Phases 2–4 |
 | 6 | Independent notification toggles | Not started |
 | 7 | Compose UI | Not started |
 | 8 | Activity log & dashboard stats | Not started |
@@ -43,7 +43,9 @@ gateways.
 | 11 | Release packaging & distribution | Not started |
 
 The app currently builds, installs, and shows a placeholder screen. It does
-not read or send anything yet.
+not read or send anything yet: the gateway client and outbound queue exist and
+are tested, but nothing feeds them until the SMS receiver (Phase 2) lands, and
+the `INTERNET` permission arrives with Phase 1.
 
 ---
 
