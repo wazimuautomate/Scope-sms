@@ -31,8 +31,8 @@ gateways.
 | **0** | Repo, scaffolding & CI pipeline | ✅ Done |
 | 1 | Permissions & SIM identification | Not started |
 | 2 | SMS ingestion & M-Pesa parser | Not started |
-| 3 | Rules engine + in-memory cache | Not started |
-| 4 | Two message template types | Not started |
+| **3** | Rules engine + in-memory cache | ✅ Done |
+| **4** | Two message template types | ✅ Done |
 | 5 | SCOPE SMS gateway client | Not started |
 | 5b | Outbound queue & burst-speed architecture | Not started |
 | 6 | Independent notification toggles | Not started |
@@ -44,6 +44,12 @@ gateways.
 
 The app currently builds, installs, and shows a placeholder screen. It does
 not read or send anything yet.
+
+The decision engine underneath it is real, though: given a payment amount it
+matches the agent's price list and renders the right reply. What's missing is
+the SMS at either end — reading one in (Phase 2) and sending one out
+(Phases 5/5b) — plus the screens to enter prices and wording (Phase 7). Until
+then the price list can only be populated from a test.
 
 ---
 
