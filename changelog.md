@@ -4,72 +4,61 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
-## 2026-07-16 — Phases 3 & 4: Rules engine, in-memory cache, template engine ✅
+## 2026-07-16 — Phase 6 ✅ + Phase 8 ✅ (Phase 7 ⛔ blocked)
 
-**Branch:** `feature/phase-3-4-rules-templates`
-**State:** both phases complete, all exit criteria met, CI green
-(run 29452548293). Not yet merged to `main`.
+**Branch:** `feature/phase-6-7-8-toggles-ui-log` (stacked on phase-1, merges phase-5)
+**State:** Phase 6 done. Phase 8 code done. **Phase 7 not started — blocked.**
+
+Session brief was "build Phase 6, 7 & 8". Two of the three shipped; Phase 7 is
+the integration layer and its dependencies are still unmerged (see below).
 
 ### Built
-- **Phase 3 — rules engine.** `PricingRule` entity + DAO + repository (Room is
-  the source of truth). `RuleSnapshot`: immutable, indexed, O(1) `classify()`,
-  lock-free reads.
-- **Phase 4 — template engine.** One `MessageTemplate` per flow, shared
-  substitution engine, `SmsSegments` GSM-7/UCS-2 segment counting for the
-  editor's cost hint. Defaults ship in code, not seeded into Room.
-- **`SnapshotCache`** — process-scoped, fed from Room's `Flow` so any write from
-  any phase updates it. Shared by both caches.
-- **Manual DI** (`AppContainer`) — the decision Phase 0 deferred to whoever
-  needed it first. Now settled; see `di/README.md`.
-- **Room schema v1 committed** + a CI step publishing `app/schemas/` as an
-  artifact, since there's no local build to generate it.
+- **Phase 6 — independent notification toggles.** `NotificationToggles` (the two
+  flags as one consistent snapshot), persisted in Phase 1's existing DataStore —
+  a second DataStore on the same file would corrupt it, so extending
+  `SettingsRepository` was forced, not chosen. `decideReply()` is a pure, total
+  gate over `MatchOutcome × toggles`, JVM-testable with no Android runtime.
+- **Phase 8 — activity log & dashboard stats.** `ActivityLogEntity`/`Dao`/
+  `Repository` + `ActivityRecord`/`DashboardStats`. Stats computed in SQL; search
+  and filter by text/status/flow/date; log dedupe on `transactionCode`.
+- **CI moved to JDK 21** — the snag Phase 0 predicted, now real (Robolectric vs
+  SDK 36+). `compileOptions` stays at 17.
 
-### Exit criteria — met
-| Criterion | Result |
-| --- | --- |
-| P3: exact-match / no-match / duplicate-amount tests | ✅ 13 in `RuleSnapshotTest` |
-| P3: cache and Room stay in sync after CRUD | ✅ 13 in `RoomCacheSyncTest`, real in-memory Room |
-| P3: lookup is a map access, not a DB round trip | ✅ proven by matching *after* `db.close()` |
-| P4: substitution correct for both template types | ✅ 18 in `TemplateEngineTest` |
-| P4: no crash on a missing variable | ✅ renders readable text, never a raw token |
-| CI green | ✅ **83 tests, 0 failures, 0 skipped** |
-
-### Decisions (full rationale in `memory.md`)
-- 🔴 **`MatchOutcome` is three-way**, not a nullable rule. "No rules configured"
-  ≠ "nothing matched" — conflating them makes a fresh install text *every*
-  paying customer an empty price list.
-- 🔴 **Money is `KshAmount` (Long cents)**, app-wide. Equality matching rules out
-  floats; `Ksh20.50` must not match the Ksh20 bundle. **Phase 2's parser should
-  return this type** — flagged as an integration seam.
-- 🔴 **`awaitLoaded()` is the only way to get a snapshot for a send decision**,
-  closing the cold-start window where an SMS arrives before Room's first read.
-- **Manual DI**, not Hilt. **Duplicate rule amounts**: most-recent-wins, and
-  reported to the UI. **Templates ship defaults; rules deliberately don't.**
+### Exit criteria
+| Phase | Criterion | Result |
+| --- | --- | --- |
+| 6 | All four toggle combinations tested | ✅ enumerated explicitly, plus the `NoRulesConfigured` override across all four |
+| 8 | Stats/log match real traffic | ⚠️ **needs a real device** — logic verified against real SQLite, but the plan's criterion is a manual on-device session |
 
 ### Verified, not assumed
-- The Robolectric suite genuinely ran against real Room — 13 tests, 9.4s, 0
-  skipped. A green build that had skipped it would have proven nothing.
-- **Room 2.8.4 / KSP 2.3.10 / Robolectric 4.16.1 / Truth / coroutines 1.11.0
-  resolve and work** under AGP 9 — Phase 0 flagged these pins as researched but
-  unexercised. They're now proven.
-- Phase 0's `ArchitectureGuardTest` still passes: no `SmsManager`, no `SEND_SMS`.
+- **102 tests pass, `assembleDebug` succeeds** with Phases 1 + 5/5b + 6 + 8 and
+  Phase 3/4's domain types compiled together — currently the only evidence these
+  phases integrate at all.
+- Verified via a **throwaway `scratch/verify-phase-6-8` branch** (Phase 0's own
+  technique) that temporarily vendored Phase 3/4's unpushed files, because this
+  branch cannot compile alone and CI is still the only compiler. Branch deleted.
+- **It caught a real bug**: the day-boundary test asserted 2 where 1 was correct
+  (`20:30Z` is 23:30 *on the 15th* in Nairobi — yesterday). Code was right, test
+  was wrong.
 
-### Fixed during the session (3 red CI runs, all self-inflicted)
-- **Kotlin block comments nest** — `app/schemas/*.json` in a KDoc opened a
-  nested comment and swallowed the file.
-- **`object` properties initialise in declaration order** — `GSM_EXTENDED` read
-  `FORM_FEED` before it was declared.
-- **Truth's `containsExactly()` returns `Ordered`, not void** — expression-bodied
-  tests ending in it aren't `Unit`, so JUnit4 killed the whole class with a
-  bare `InvalidTestClassError`.
-
-### Raised for the client / next sessions
-- ⚠️ **Robolectric needed no JDK 21 bump after all** — pinned `@Config(sdk =
-  [30])` instead. CI stays on 17. Phase 0's warning is updated, not deleted.
-- ⚠️ **Phase 5b/8:** after adding an entity, download the `room-schemas-<run>`
-  CI artifact and commit the new JSON, or the next migration has no baseline.
-- ⚠️ **Phase 7:** `RuleSnapshot.duplicateAmounts` needs surfacing on the rules
-  screen; `TemplateEngine.validate()` is there for the editor to call on save.
+### 🔴 Raised — collisions no session can see from inside its own worktree
+- **TWO MONEY TYPES.** Phase 2 ships `Money` + `amountCents: Long`; Phase 3/4
+  ships `KshAmount` value class. Both chose integer cents, so the data agrees —
+  but they will not compile together. **Recommendation: `KshAmount` wins, Phase 2
+  adapts.** Unresolved; owned by whoever merges those two.
+- **THREE ROOM DATABASES.** Phase 5b's `data/AppDatabase.kt` (pushed first) wins.
+  Phase 8's duplicate was **deleted and its entity moved into it**. Phase 3/4
+  still has a competing `data/db/ScopeSmsDatabase.kt` — same filename Phase 8 had
+  — that must be dropped the same way.
+- **Phase 7 is blocked.** It wires every screen to Phases 1–6, which live across
+  four unmerged branches; Phase 3/4 had pushed nothing and existed only as
+  uncommitted files. Building screens against signatures still being edited
+  produces code that can't compile or be reviewed. Phase 7 should start once
+  2, 3/4 and 5 are on `main`.
+- **Toggle defaults still unconfirmed with the client** (open decision 4).
+  Shipped with BUILD-PLAN's recommendation (unmatched=ON, matched=OFF) as a
+  *pinned placeholder* — safe because a fresh install has no rules, so nothing can
+  send regardless. One constant + two tests to change.
 
 ---
 

@@ -2,7 +2,7 @@ package com.scopesms.autoreply.data
 
 import androidx.room.Room
 import com.google.common.truth.Truth.assertThat
-import com.scopesms.autoreply.data.db.ScopeSmsDatabase
+import com.scopesms.autoreply.data.AppDatabase
 import com.scopesms.autoreply.data.rules.RoomPricingRuleRepository
 import com.scopesms.autoreply.data.templates.RoomMessageTemplateRepository
 import com.scopesms.autoreply.domain.money.KshAmount
@@ -55,7 +55,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [30])
 class RoomCacheSyncTest {
 
-    private lateinit var db: ScopeSmsDatabase
+    private lateinit var db: AppDatabase
     private lateinit var rules: RoomPricingRuleRepository
     private lateinit var templates: RoomMessageTemplateRepository
     private lateinit var scope: CoroutineScope
@@ -64,7 +64,7 @@ class RoomCacheSyncTest {
     fun setUp() {
         db = Room.inMemoryDatabaseBuilder(
             RuntimeEnvironment.getApplication(),
-            ScopeSmsDatabase::class.java,
+            AppDatabase::class.java,
         ).build()
 
         rules = RoomPricingRuleRepository(db.pricingRuleDao())

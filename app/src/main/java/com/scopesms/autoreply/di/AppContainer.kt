@@ -3,7 +3,8 @@ package com.scopesms.autoreply.di
 import android.content.Context
 import android.util.Log
 import com.scopesms.autoreply.ScopeSmsApplication
-import com.scopesms.autoreply.data.db.ScopeSmsDatabase
+import com.scopesms.autoreply.data.AppDatabase
+import com.scopesms.autoreply.data.log.ActivityLogRepository
 import com.scopesms.autoreply.data.rules.RoomPricingRuleRepository
 import com.scopesms.autoreply.data.settings.SettingsRepository
 import com.scopesms.autoreply.data.system.BatteryOptimizationManager
@@ -74,15 +75,24 @@ class AppContainer(context: Context) {
         BatteryOptimizationManager(appContext)
     }
 
-    // ---- Phase 3/4: rules, templates ----------------------------------------
+    // ---- Phases 3/4/5b/8: the one Room database ----------------------------
 
     /**
      * Lazy so that constructing the container — which happens in
      * `Application.onCreate`, on the main thread, on every process start
      * including headless SMS wakeups — doesn't open SQLite. The first touch
      * comes from [start]'s collectors, already on [Dispatchers.IO].
+     *
+     * [AppDatabase.get] has its own double-checked locking because the queue
+     * worker and the receiver can race on first access; this `by lazy` is about
+     * not touching SQLite at all until something asks.
      */
-    val database: ScopeSmsDatabase by lazy { ScopeSmsDatabase.build(appContext) }
+    val database: AppDatabase by lazy { AppDatabase.get(appContext) }
+
+    /** Phase 8 — the activity log. */
+    val activityLog: ActivityLogRepository by lazy {
+        ActivityLogRepository(database.activityLogDao())
+    }
 
     val pricingRuleRepository: PricingRuleRepository by lazy {
         RoomPricingRuleRepository(database.pricingRuleDao())
