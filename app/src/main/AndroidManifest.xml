@@ -81,8 +81,34 @@
             </intent-filter>
         </activity>
 
-        <!-- Phase 2 registers the SMS_RECEIVED receiver here. Not declared in
-             Phase 1: naming a class that doesn't exist yet fails the build. -->
+        <!--
+          Phase 2 — SMS ingestion. The app's only entry point for real work.
+
+          exported="true" is required, not a choice: the sender is the OS, not
+          this app. The lock that matters is android:permission — only a caller
+          holding BROADCAST_SMS (i.e. the system) can deliver here, so another
+          app cannot forge a payment SMS and make the agent's gateway text a
+          stranger at the agent's expense.
+
+          Manifest-registered rather than runtime-registered on purpose: the
+          process is not running when a payment lands at 2am, and a manifest
+          receiver is what lets the system start it — which is what makes
+          CLAUDE.md constraint 6 (no persistent foreground service) viable.
+        -->
+        <receiver
+            android:name=".telephony.SmsReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <!-- Priority only orders delivery among receivers; it does not and
+                 cannot let us abort the broadcast. SMS_RECEIVED_ACTION is a
+                 non-ordered broadcast for non-default SMS apps, so the agent's
+                 normal messaging app still shows the M-Pesa message as usual —
+                 which is what the agent wants. -->
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 
