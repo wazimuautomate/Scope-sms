@@ -101,6 +101,11 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
 
+    // Phase 1 — SIM selection and onboarding state. First real use of this
+    // catalog pin (memory.md flags every "later phases" entry as researched but
+    // never resolved by a build), so this push is what confirms it exists.
+    implementation(libs.androidx.datastore.preferences)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

@@ -2,17 +2,62 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      Phase 0 declares NO permissions on purpose.
-
-      Phase 1 owns the permission set (RECEIVE_SMS, READ_SMS, READ_PHONE_STATE,
-      POST_NOTIFICATIONS, INTERNET) and its runtime request flow — see
-      BUILD-PLAN.md Phase 1. Declaring them here would only create merge
-      conflicts with that work.
+      Permission set — owned by Phase 1 (BUILD-PLAN.md).
 
       One permission must NEVER appear in this file: SEND_SMS. All outbound
       messages go through the SCOPE SMS HTTP gateway using the registered
-      sender ID, never SmsManager. See CLAUDE.md constraint 3.
+      sender ID, never SmsManager (CLAUDE.md constraint 3). ArchitectureGuardTest
+      fails the build if it reappears.
     -->
+
+    <!-- Ingestion. RECEIVE_SMS is what actually delivers SMS_RECEIVED to the
+         manifest receiver in Phase 2. READ_SMS is requested alongside it (same
+         permission group, so they are granted together anyway) and is what any
+         later "re-read a message we missed" recovery path would need. -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+
+    <!-- Dual-SIM identification: without this, SubscriptionManager returns an
+         empty list and the agent cannot tell us which SIM receives M-Pesa —
+         which is the filter that stops their personal payments triggering
+         customer replies (CLAUDE.md constraint 4). -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+    <!-- Lets us show each SIM's own MSISDN in the picker.
+         DEVIATION from BUILD-PLAN Phase 1's listed permission set, deliberately:
+         the plan asks for "display number if available", and from API 33
+         SubscriptionInfo.getNumber() requires READ_PHONE_NUMBERS specifically —
+         READ_PHONE_STATE alone returns blank. Both of the agent's SIMs may well
+         be Safaricom, in which case the carrier name disambiguates nothing and
+         the number is the only thing that does. Optional by design: the picker
+         degrades to slot + carrier if this is denied. See memory.md. -->
+    <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+
+    <!-- Outbound replies reach the gateway over HTTP (CLAUDE.md constraint 2).
+         Not a runtime permission — install-time only, no prompt. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Phase 5b's queue worker uses this to hold jobs until connectivity
+         returns rather than dropping them. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- API 33+. Runtime-prompted only on 33+; harmless on 30-32, where
+         notifications need no grant. Used for send-failure alerts — a failed
+         reply is money-adjacent and the agent must notice it. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Normal permission; it does not prompt. It only makes the system accept
+         ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, which is what actually
+         asks the agent. Play restricts apps that declare this, which does not
+         apply here: distribution is direct-install APK (CLAUDE.md constraint 8),
+         and this app is already outside Play's SMS policy regardless. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Telephony is required, not optional: an SMS-ingestion app is useless on
+         a device without it. Declared explicitly so the requirement is visible
+         rather than implied by the permissions above. -->
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="true" />
 
     <application
         android:name=".ScopeSmsApplication"
@@ -35,6 +80,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Phase 2 registers the SMS_RECEIVED receiver here. Not declared in
+             Phase 1: naming a class that doesn't exist yet fails the build. -->
 
     </application>
 
