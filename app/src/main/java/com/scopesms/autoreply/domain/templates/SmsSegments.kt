@@ -127,13 +127,20 @@ object SmsSegments {
      * characters at all, so a single one forces the entire message to UCS-2 —
      * the most likely way for the agent's template to silently double in price.
      */
+    /**
+     * Form feed, by code point.
+     *
+     * As a literal it is an invisible control character that editors and shell
+     * round-trips quietly eat — and losing it would be undetectable by eye while
+     * silently mispricing any message containing one.
+     *
+     * Declared before [GSM_EXTENDED] because it is read by that initialiser, and
+     * an `object`'s properties initialise in declaration order.
+     */
+    private val FORM_FEED = 12.toChar()
+
     private val GSM_EXTENDED: Set<Char> = buildSet {
-        // Form feed, by code point. As a literal it is an invisible control
-        // character that editors and shell round-trips quietly eat, and losing
-        // it would be undetectable by eye.
         add(FORM_FEED)
         addAll("^{}\\[~]|€".toList())
     }
-
-    private val FORM_FEED = 12.toChar()
 }

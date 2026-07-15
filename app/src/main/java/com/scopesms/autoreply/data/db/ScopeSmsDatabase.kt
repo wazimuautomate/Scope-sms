@@ -19,7 +19,7 @@ import com.scopesms.autoreply.data.templates.MessageTemplateEntity
  * 2. Bump [Database.version].
  * 3. **Write a real [androidx.room.migration.Migration] and register it in
  *    [build].** Not optional — see below.
- * 4. Commit the regenerated `app/schemas/*.json`. It is the input to every
+ * 4. Commit the regenerated JSON under `app/schemas`. It is the input to every
  *    future migration; without it Room cannot diff versions.
  *
  * ## No `fallbackToDestructiveMigration()` — ever
