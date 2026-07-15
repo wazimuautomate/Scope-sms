@@ -4,91 +4,72 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
-## 2026-07-15 — Phases 1 & 2: Permissions/SIM foundation + M-Pesa ingestion 🟡
+## 2026-07-16 — Phases 3 & 4: Rules engine, in-memory cache, template engine ✅
 
-**Branches:** `feature/phase-1-permissions-sim` (PR #2) →
-`feature/phase-2-sms-ingestion-parser` (PR #3, stacked on #2).
-**State:** both **code-complete and CI-green, neither verified-complete.** Read
-the exit-criteria section below before reporting either as done.
+**Branch:** `feature/phase-3-4-rules-templates`
+**State:** both phases complete, all exit criteria met, CI green
+(run 29452548293). Not yet merged to `main`.
 
-### Built — Phase 1
-- **Permission set** in the manifest + `AppPermission`, a pure SDK-gated model.
-  `POST_NOTIFICATIONS` requested only on 33+; install-time permissions never
-  passed to the runtime request (doing so builds a screen that can never be
-  satisfied).
-- **`SimSelection` / `SimFilter`** — the agent's SIM choice and the
-  process/drop decision. Pure, JVM-tested, keyed on **physical slot**.
-- **`SimReader`** — defensive `SubscriptionManager` wrapper; degrades to an
-  empty list rather than throwing into the receiver.
-- **`SettingsRepository`** — DataStore, with a volatile snapshot so the SMS hot
-  path does no disk I/O (constraint 5).
-- **`BatteryOptimizationManager`** — live read + exemption intents with an
-  OEM fallback.
-- **`AppContainer`** — manual DI. This is the decision `di/README.md` deferred.
-- **`SetupScreen`** — deliberately plain; exists only so the exit criteria are
-  tappable on a real device. Phase 7 replaces it.
+### Built
+- **Phase 3 — rules engine.** `PricingRule` entity + DAO + repository (Room is
+  the source of truth). `RuleSnapshot`: immutable, indexed, O(1) `classify()`,
+  lock-free reads.
+- **Phase 4 — template engine.** One `MessageTemplate` per flow, shared
+  substitution engine, `SmsSegments` GSM-7/UCS-2 segment counting for the
+  editor's cost hint. Defaults ship in code, not seeded into Room.
+- **`SnapshotCache`** — process-scoped, fed from Room's `Flow` so any write from
+  any phase updates it. Shared by both caches.
+- **Manual DI** (`AppContainer`) — the decision Phase 0 deferred to whoever
+  needed it first. Now settled; see `di/README.md`.
+- **Room schema v1 committed** + a CI step publishing `app/schemas/` as an
+  artifact, since there's no local build to generate it.
 
-### Built — Phase 2
-- **`SmsReceiver`** — manifest-registered, `goAsync()`, locked to
-  `BROADCAST_SMS`. Rejects cheapest-first (action → sender → SIM → parse); the
-  SIM drop happens **before the body is read**, so the agent's personal messages
-  are never parsed.
-- **`MpesaParser`** — pure till-confirmation parser, tolerant of M-Pesa's
-  irregular spacing (`Confirmed.on`, `PMKsh20.00`), strict about structure.
-  Explicitly rejects sent/withdrawn/paid/airtime/balance types and non-M-Pesa
-  senders.
-- **`Money`** — integer cents.
-- **`SubscriptionExtras`** — OEM-tolerant subId/slot extraction, pure.
-
-### CI
-| | Result |
+### Exit criteria — met
+| Criterion | Result |
 | --- | --- |
-| Phase 1 | ✅ 35 tests, 0 failures; debug APK 11.4 MB |
-| Phase 2 | ✅ 84 tests, 0 failures |
-
-Counts read from the downloaded CI test report, not from the green tick.
-
-### 🔴 Exit criteria NOT met — both phases
-- **Phase 1** needs a real dual-SIM device to list both SIMs and persist the
-  filter across restart/reboot. No device exists in this workflow — **only the
-  agent can run this.** Steps are in `README.md`.
-- **Phase 2** needs the suite passing against real samples. **We still have
-  exactly one** (open decision 5). Every other case in `MpesaParserTest` is a
-  *constructed* variant and is labelled as such in the file. Green means "no
-  known case is broken", not "the parser is done".
-
-Merged to `main` regardless so the parallel Phase 3/4/5 sessions aren't blocked
-on `AppContainer`/`SettingsRepository`/`Money`. Logged as deviation 0 in
-`memory.md`.
+| P3: exact-match / no-match / duplicate-amount tests | ✅ 13 in `RuleSnapshotTest` |
+| P3: cache and Room stay in sync after CRUD | ✅ 13 in `RoomCacheSyncTest`, real in-memory Room |
+| P3: lookup is a map access, not a DB round trip | ✅ proven by matching *after* `db.close()` |
+| P4: substitution correct for both template types | ✅ 18 in `TemplateEngineTest` |
+| P4: no crash on a missing variable | ✅ renders readable text, never a raw token |
+| CI green | ✅ **83 tests, 0 failures, 0 skipped** |
 
 ### Decisions (full rationale in `memory.md`)
-- **Manual DI, not Hilt** — resolves the open decision Phase 0 deferred.
-- 🔴 **Money is integer cents. Phase 3's `PricingRule.amount` must match** — a
-  rules table in shillings against a parser in cents matches nothing, and the
-  app would silently treat every payment as unmatched.
-- 🔴 **SIM choice keyed on slot, not subscription ID** — subscription IDs are
-  not stable across re-seat/reboot, so persisting one would silently repoint the
-  agent's filter at their personal SIM (constraint 4's worst case).
-- **Unresolvable slot → drop**, except on a single-active-SIM device.
-- **Battery exemption read live, never persisted** — a cached copy shows a green
-  "protected" badge for an app the system is killing.
+- 🔴 **`MatchOutcome` is three-way**, not a nullable rule. "No rules configured"
+  ≠ "nothing matched" — conflating them makes a fresh install text *every*
+  paying customer an empty price list.
+- 🔴 **Money is `KshAmount` (Long cents)**, app-wide. Equality matching rules out
+  floats; `Ksh20.50` must not match the Ksh20 bundle. **Phase 2's parser should
+  return this type** — flagged as an integration seam.
+- 🔴 **`awaitLoaded()` is the only way to get a snapshot for a send decision**,
+  closing the cold-start window where an SMS arrives before Room's first read.
+- **Manual DI**, not Hilt. **Duplicate rule amounts**: most-recent-wins, and
+  reported to the UI. **Templates ship defaults; rules deliberately don't.**
 
-### Fixed during the session
-- **CI red:** Kotlin enum entries can't read their own companion's constants.
-  Moved to file-level constants.
-- **`git add -A` swept another session's `Design.md`** into a Phase 1 commit;
-  untracked in a follow-up. It remains on disk, untouched.
+### Verified, not assumed
+- The Robolectric suite genuinely ran against real Room — 13 tests, 9.4s, 0
+  skipped. A green build that had skipped it would have proven nothing.
+- **Room 2.8.4 / KSP 2.3.10 / Robolectric 4.16.1 / Truth / coroutines 1.11.0
+  resolve and work** under AGP 9 — Phase 0 flagged these pins as researched but
+  unexercised. They're now proven.
+- Phase 0's `ArchitectureGuardTest` still passes: no `SmsManager`, no `SEND_SMS`.
+
+### Fixed during the session (3 red CI runs, all self-inflicted)
+- **Kotlin block comments nest** — `app/schemas/*.json` in a KDoc opened a
+  nested comment and swallowed the file.
+- **`object` properties initialise in declaration order** — `GSM_EXTENDED` read
+  `FORM_FEED` before it was declared.
+- **Truth's `containsExactly()` returns `Ordered`, not void** — expression-bodied
+  tests ending in it aren't `Unit`, so JUnit4 killed the whole class with a
+  bare `InvalidTestClassError`.
 
 ### Raised for the client / next sessions
-- 🔴 **Still only one real M-Pesa sample.** Phase 2's regex cannot be trusted
-  until the agent supplies 5–10 more redacted ones. Highest-value ask on the
-  project right now.
-- ⚠️ **The M-Pesa sender rule (`^M-?PESA$`) is unverified on the agent's
-  handset.** If real payments are dropped, look here first — the rejected
-  address is logged.
-- 🔴 **Parallel sessions share one working directory.** Two near-misses this
-  session (see `memory.md` gotchas). `git worktree` per session would remove the
-  whole class of problem.
+- ⚠️ **Robolectric needed no JDK 21 bump after all** — pinned `@Config(sdk =
+  [30])` instead. CI stays on 17. Phase 0's warning is updated, not deleted.
+- ⚠️ **Phase 5b/8:** after adding an entity, download the `room-schemas-<run>`
+  CI artifact and commit the new JSON, or the next migration has no baseline.
+- ⚠️ **Phase 7:** `RuleSnapshot.duplicateAmounts` needs surfacing on the rules
+  screen; `TemplateEngine.validate()` is there for the editor to call on save.
 
 ---
 

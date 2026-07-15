@@ -1,48 +1,54 @@
 # `di/` — dependency injection
 
-**Owned by:** Phase 1 (decided it), every phase after (uses it).
+**Decided by:** Phase 3, the first phase that needed to wire anything together —
+exactly as Phase 0 planned.
 
-## Status: DECIDED — manual DI
+## Status: settled — manual DI, via `AppContainer`
 
-CLAUDE.md says "manual DI or Hilt, whichever is already established in the repo
-by the time you read this (check `memory.md`)". Phase 0 deliberately established
-neither, leaving the call to the first phase that genuinely needed to wire two
-things together. That was **Phase 1**, and the answer is **manual DI**:
-`AppContainer`, constructed by `ScopeSmsApplication`, reached via
-`AppContainer.from(context)`.
+Phase 0 established neither manual DI nor Hilt, deliberately: a scaffold with one
+Activity has nothing to inject, and guessing wrong would have forced a later
+session to unpick it. Phase 3 brought the first real graph (a database, two
+repositories, two caches) and made the call.
 
-**This is settled — don't relitigate it per phase.** Full rationale is in the
-KDoc on `AppContainer` and in `memory.md`. The short version:
+**It is manual.** The reasoning is in the KDoc on `AppContainer` — read that
+rather than re-deriving it. In short:
 
-1. The graph is a handful of process-scoped singletons and will stay that way.
-2. Hilt needs KSP, and CI is this project's only compiler (CLAUDE.md constraint
-   8) — every annotation processor is a per-push cost and one more failure mode
-   nobody can reproduce locally. Room forces KSP on us in Phase 3; that one is
-   unavoidable, this one isn't.
-3. The awkward bit — a `BroadcastReceiver` is constructed by the system, so the
-   graph must be reachable from process scope — is solved identically either
-   way. `@AndroidEntryPoint` would hide that lookup, not remove it.
+1. The graph is five process-scoped singletons with no variants, no qualifiers
+   and no swappable implementations. Hilt earns its keep on graphs that have
+   those; this one doesn't.
+2. The awkward consumer is a `BroadcastReceiver`, which Android constructs
+   itself. Hilt solves that with `@AndroidEntryPoint`; manual DI solves it by
+   reading a field off the `Application` — with no annotation processor and
+   nothing generated to reason about at 2am.
+3. There is no local Android Studio (CLAUDE.md constraint 8), so every build
+   mistake costs a CI round trip. Room already brings KSP; Hilt would add a
+   second processor plus a Gradle plugin whose behaviour under AGP 9's built-in
+   Kotlin nobody on this project has verified.
 
-Revisit only if the graph grows real scopes (per-Activity, per-worker) that make
-hand-wiring error-prone. If it does, record the change here and in `memory.md`.
+**Do not relitigate this per phase.** If the graph later grows scopes and
+swappable implementations, revisit it deliberately and record the change in
+`memory.md`.
 
-## How to use it
+## How to get the graph
 
 ```kotlin
-// From a BroadcastReceiver, Worker, or anywhere else the system constructs:
-val container = AppContainer.from(context)
-container.settings.currentSimSelection()
+// From a receiver, Activity, or anything with a Context:
+val container = context.appContainer
 ```
 
-From a `ViewModel`, prefer a `Factory` that pulls the container out of
-`CreationExtras` — see `SetupViewModel.Factory` for the pattern.
+`appContainer` is an extension on `Context` in `AppContainer.kt`. Use it rather
+than casting `ScopeSmsApplication` by hand.
 
-## Rules for anything added here
+## Constraints to respect when extending it
 
-- **Everything stays lazy.** `AppContainer` is constructed on every process
-  start, including the headless ones an incoming SMS causes at 2am. CLAUDE.md
-  constraint 5 wants that path fast, so no field may do I/O to be created.
-- **Nothing holds an Activity `Context`.** Use `context.applicationContext`;
-  the container outlives every screen.
-- **`applicationScope` is never cancelled.** Its lifetime is the process's. It
-  uses a `SupervisorJob` so one failing child can't take ingestion down with it.
+- **Keep `Application.onCreate` cheap.** It runs on every process start,
+  including the headless ones an incoming SMS causes, and sits on the path
+  CLAUDE.md constraint 5 asks to keep fast. New dependencies should be `by lazy`
+  or initialised on a background dispatcher — `AppContainer` opens no database on
+  the main thread today, and it should stay that way.
+- **The caches are fed from Room's `Flow`, not by writers.** `start()` owns that.
+  Don't add a "poke the cache after saving" call to a repository; see
+  `SnapshotCache`'s KDoc for why that pattern is the stale-cache bug waiting to
+  happen.
+- **Anything read on the SMS path must be reachable from process scope**, because
+  a receiver has no Activity to hang off.

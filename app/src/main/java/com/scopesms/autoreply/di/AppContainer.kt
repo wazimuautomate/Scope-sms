@@ -1,43 +1,53 @@
 package com.scopesms.autoreply.di
 
 import android.content.Context
+import android.util.Log
 import com.scopesms.autoreply.ScopeSmsApplication
+import com.scopesms.autoreply.data.db.ScopeSmsDatabase
+import com.scopesms.autoreply.data.rules.RoomPricingRuleRepository
 import com.scopesms.autoreply.data.settings.SettingsRepository
 import com.scopesms.autoreply.data.system.BatteryOptimizationManager
+import com.scopesms.autoreply.data.templates.RoomMessageTemplateRepository
+import com.scopesms.autoreply.domain.rules.PricingRuleRepository
+import com.scopesms.autoreply.domain.rules.RuleCache
+import com.scopesms.autoreply.domain.templates.MessageTemplateRepository
+import com.scopesms.autoreply.domain.templates.TemplateCache
 import com.scopesms.autoreply.telephony.AndroidSimReader
 import com.scopesms.autoreply.telephony.SimReader
+import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.launch
 
 /**
  * The app's object graph: manual DI, resolved at process scope.
  *
- * ### The decision (di/README.md said the first phase that needs DI makes it)
- * **Manual DI, not Hilt.** Phase 1 is the first phase with anything to wire, so
- * per `memory.md` this is now settled — don't relitigate it per phase.
+ * ## Manual DI, not Hilt — settled, do not relitigate
+ * Phase 0 left this to the first phase that needed wiring; Phases 1 and 3 both
+ * arrived at manual independently, and `memory.md` records it as closed.
  *
- * Reasons, in order of weight:
- * 1. The graph is four singletons and will realistically end at a dozen. Hilt's
- *    ceremony buys nothing at that size.
- * 2. Hilt needs KSP. This project's only compiler is a GitHub Actions runner
- *    (CLAUDE.md constraint 8), so every annotation processor is a build-time
- *    cost paid on every push and one more thing that can break a build nobody
- *    can reproduce locally. Room already forces KSP on us in Phase 3; that one
- *    is unavoidable, this one isn't.
- * 3. The awkward constraint `di/README.md` names — a `BroadcastReceiver` is
- *    constructed by the system, so the graph must be reachable from process
- *    scope — is solved the same way either way ([from]). Hilt's
- *    `@AndroidEntryPoint` would hide that lookup, not remove it.
+ * 1. The graph is a handful of process-scoped singletons and will stay that way.
+ * 2. Hilt needs KSP, and CI is this project's only compiler (CLAUDE.md
+ *    constraint 8) — every annotation processor is a per-push cost and one more
+ *    failure mode nobody can reproduce locally. Room already forces KSP; that
+ *    one is unavoidable, this one isn't.
+ * 3. The awkward consumer is a `BroadcastReceiver`, which Android constructs
+ *    itself. `@AndroidEntryPoint` would hide the process-scope lookup, not
+ *    remove it.
  *
- * Revisit only if the graph grows scopes (per-Activity, per-worker) that make
- * hand-wiring genuinely error-prone. Log it in memory.md if so.
- *
- * ### Everything here is lazy
- * This is constructed on **every** process start, including the headless ones
- * an incoming SMS causes at 2am. CLAUDE.md constraint 5 wants that path fast,
- * so construction itself must stay near-free: nothing below is built until
+ * ## Everything here is lazy
+ * This is constructed on **every** process start, including the headless ones an
+ * incoming SMS causes at 2am. CLAUDE.md constraint 5 wants that path fast, so
+ * construction itself must stay near-free: nothing below is built until
  * something asks for it, and no field does I/O to be created.
+ *
+ * Two rules for anything added here: stay `by lazy`, and never hold an Activity
+ * `Context`.
  */
 class AppContainer(context: Context) {
 
@@ -45,13 +55,16 @@ class AppContainer(context: Context) {
     private val appContext: Context = context.applicationContext
 
     /**
-     * For work that must outlive any screen — keeping the settings cache warm,
-     * and later draining the outbound queue.
+     * For work that must outlive any screen — keeping the settings snapshot
+     * warm, mirroring Room into the caches, and draining the outbound queue.
      *
      * `SupervisorJob` so one failing child can't cancel the scope and take
-     * ingestion with it. Never cancelled: its lifetime is the process's.
+     * ingestion with it: a broken template collector shouldn't also blind the
+     * rule cache. Never cancelled — its lifetime is the process's.
      */
-    val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // ---- Phase 1: settings, SIM, battery ------------------------------------
 
     val settings: SettingsRepository by lazy { SettingsRepository.create(appContext) }
 
@@ -61,7 +74,94 @@ class AppContainer(context: Context) {
         BatteryOptimizationManager(appContext)
     }
 
+    // ---- Phase 3/4: rules, templates ----------------------------------------
+
+    /**
+     * Lazy so that constructing the container — which happens in
+     * `Application.onCreate`, on the main thread, on every process start
+     * including headless SMS wakeups — doesn't open SQLite. The first touch
+     * comes from [start]'s collectors, already on [Dispatchers.IO].
+     */
+    val database: ScopeSmsDatabase by lazy { ScopeSmsDatabase.build(appContext) }
+
+    val pricingRuleRepository: PricingRuleRepository by lazy {
+        RoomPricingRuleRepository(database.pricingRuleDao())
+    }
+
+    val messageTemplateRepository: MessageTemplateRepository by lazy {
+        RoomMessageTemplateRepository(database.messageTemplateDao())
+    }
+
+    /** Read by the SMS receive path. Kept current by [start]. */
+    val ruleCache = RuleCache()
+
+    /** Read by the SMS receive path. Kept current by [start]. */
+    val templateCache = TemplateCache()
+
+    /**
+     * Starts the background work the graph owns. Call once, from
+     * `Application.onCreate`.
+     *
+     * Returns immediately; the first cache snapshot lands a few milliseconds
+     * later. Anything deciding whether to reply must therefore await
+     * [com.scopesms.autoreply.domain.cache.SnapshotCache.awaitLoaded] rather
+     * than read whatever happens to be there — see that method for why.
+     */
+    fun start() {
+        // Warms the SIM-selection snapshot so the receiver's filter answers from
+        // memory instead of falling back to a disk read (constraint 5). Kicking
+        // it off here means the read overlaps with the receiver's own startup
+        // rather than landing in front of the first SMS of a burst.
+        settings.simSelection.launchIn(applicationScope)
+
+        applicationScope.launch {
+            keepInSync("rules", pricingRuleRepository.observeAll(), ruleCache::publish)
+        }
+        applicationScope.launch {
+            keepInSync("templates", messageTemplateRepository.observeAll(), templateCache::publish)
+        }
+    }
+
+    /**
+     * Collects [source] into [publish] forever, retrying on failure.
+     *
+     * **Retries without limit, on purpose.** If this collector dies, the cache
+     * it feeds never loads, `awaitLoaded()` never resumes, and every incoming
+     * payment silently fails to get a reply — the app looks alive while doing
+     * nothing, which CLAUDE.md constraint 9 calls out as the outcome to avoid.
+     * Giving up after N attempts would make that state permanent until the agent
+     * happens to reboot their phone. The realistic causes (disk pressure on a
+     * cheap handset, a transient SQLite lock) are exactly the kind that clear on
+     * their own.
+     *
+     * Backoff caps at [MAX_RETRY_DELAY_MS] so a long-running failure costs
+     * roughly one wakeup a minute rather than a spin loop on the agent's
+     * battery.
+     */
+    private suspend fun <T> keepInSync(label: String, source: Flow<T>, publish: (T) -> Unit) {
+        source
+            .retryWhen { cause, attempt ->
+                // The throwable only — never the collected rows. Template bodies
+                // are the agent's words and rules are their pricing; neither
+                // belongs in logcat, which bug reports scoop up wholesale.
+                Log.e(TAG, "$label cache sync failed (attempt $attempt), retrying", cause)
+                delay(retryDelayMs(attempt))
+                true
+            }
+            .collect { publish(it) }
+    }
+
+    private fun retryDelayMs(attempt: Long): Long =
+        min(BASE_RETRY_DELAY_MS shl attempt.coerceAtMost(POW_CAP).toInt(), MAX_RETRY_DELAY_MS)
+
     companion object {
+        private const val TAG = "ScopeSms/Container"
+        private const val BASE_RETRY_DELAY_MS = 250L
+        private const val MAX_RETRY_DELAY_MS = 60_000L
+
+        /** Keeps the shift from overflowing before `min` can cap it. */
+        private const val POW_CAP = 16L
+
         /**
          * Reaches the container from anywhere holding a `Context` — including a
          * `BroadcastReceiver`, which the system constructs and hands nothing.
@@ -81,3 +181,16 @@ class AppContainer(context: Context) {
         }
     }
 }
+
+/**
+ * The container, from anywhere holding a [Context] — including a
+ * `BroadcastReceiver`, which Android constructs with no chance to inject it.
+ *
+ * ```
+ * // In a receiver:
+ * val container = context.appContainer
+ * val snapshot = withTimeout(5_000) { container.ruleCache.awaitLoaded() }
+ * ```
+ */
+val Context.appContainer: AppContainer
+    get() = AppContainer.from(this)

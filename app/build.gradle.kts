@@ -1,6 +1,10 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+
+    // Room's compiler runs through KSP. Never kapt — kapt is incompatible with
+    // AGP 9's built-in Kotlin (see gradle/libs.versions.toml).
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -80,6 +84,26 @@ android {
         // ArchitectureGuardTest. Off by default since AGP 8.
         buildConfig = true
     }
+
+    testOptions {
+        unitTests {
+            // Robolectric needs the merged resources/manifest to inflate an
+            // Application. Only the Room cache-sync tests use it; everything in
+            // domain/ is JVM-pure and unaffected.
+            isIncludeAndroidResources = true
+        }
+    }
+}
+
+// Room writes its schema JSON here, one file per version.
+//
+// data/README.md commits to real migrations from the first release onward:
+// once the agent is running this on their live business, a destructive
+// migration throws away their bundle prices and history. Migrations can't be
+// written or verified without these checked-in schemas, so the export is
+// mandatory, not documentation.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 // No `kotlin { compilerOptions { } }` block: under AGP 9's built-in Kotlin,
@@ -108,5 +132,21 @@ dependencies {
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 
+    // Room — source of truth for pricing rules (Phase 3) and message templates
+    // (Phase 4). The send queue (5b) and activity log (8) extend the same
+    // database; see data/db/ScopeSmsDatabase.kt before adding an entity.
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
+    // Declared rather than inherited transitively through lifecycle: domain/
+    // and di/ use Flow and CoroutineScope directly, and a transitive version
+    // bump shouldn't be able to silently move them.
+    implementation(libs.kotlinx.coroutines.core)
+
     testImplementation(libs.junit)
+    testImplementation(libs.truth)
+    testImplementation(libs.kotlinx.coroutines.test)
+    // Only for the Room-backed sync tests, pinned to SDK 30. See the catalog.
+    testImplementation(libs.robolectric)
 }
