@@ -114,6 +114,22 @@ object ReliabilityCheck {
         val watched = (snapshot.simSelection as? SimSelection.Slots)?.slots
             ?: return emptyList()
 
+        // Empty means "watch nothing" — a different fault from "watch a slot
+        // that's empty", and not one this function should claim.
+        //
+        // Guarding it is not defensive padding: `none {}` on an empty set is
+        // vacuously *true*, so without this the check below fires and reports
+        // WatchedSlotsMissing with an empty slot set, rendering the sentence
+        // "You told Scope SMS to watch , but those slots are empty."
+        //
+        // SimSelection.decode() maps an empty stored value to DEFAULT, so this
+        // state cannot come off disk and is near-unreachable in practice —
+        // which is exactly why it earns a line of code rather than a shrug:
+        // an unreachable branch that emits a broken sentence is a bug waiting
+        // for someone to make it reachable. SimFilter already fails this state
+        // safely as NO_SIM_SELECTED.
+        if (watched.isEmpty()) return emptyList()
+
         // A partially-present choice is left alone on purpose. If the agent
         // watches SIM 1 and SIM 2 and pulls SIM 2, slot 0 still ingests
         // normally — that is a working app, and pulling a SIM is usually
