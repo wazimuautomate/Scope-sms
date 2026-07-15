@@ -1,0 +1,73 @@
+# ---------------------------------------------------------------------------
+# Secrets — NEVER commit. See CLAUDE.md constraint 7.
+# The SCOPE SMS gateway API key and sender ID are entered by the agent at
+# runtime and stored encrypted on-device. They must never reach this repo.
+# ---------------------------------------------------------------------------
+local.properties
+secrets.properties
+keystore.properties
+*.jks
+*.keystore
+*.p12
+*.pem
+!debug.keystore
+.env
+.env.*
+!.env.example
+google-services.json
+api-keys.properties
+
+# ---------------------------------------------------------------------------
+# Gradle / build
+# ---------------------------------------------------------------------------
+.gradle/
+build/
+captures/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+release/
+obj/
+gen/
+out/
+
+# Gradle wrapper: the jar IS committed on purpose — CI runs ./gradlew and has
+# no other way to bootstrap Gradle. Do not add gradle-wrapper.jar here.
+
+# ---------------------------------------------------------------------------
+# Android Studio / IntelliJ
+# ---------------------------------------------------------------------------
+.idea/
+*.iml
+*.iws
+*.ipr
+.navigation/
+lint/intermediates/
+lint/generated/
+lint/outputs/
+lint/tmp/
+lint/reports/
+
+# ---------------------------------------------------------------------------
+# OS / editor noise
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+*.swp
+
+# ---------------------------------------------------------------------------
+# Reference material — local only, deleted by the client after Phase 8.
+# `bingwa-auto-reply/` is the Google AI Studio UI generation (a separate,
+# unrelated Gradle project — committing it would nest a second Android build
+# inside this repo and confuse both CI and future sessions).
+# `app-icons/` is the source icon export; the icons we actually ship have been
+# copied into app/src/main/res/mipmap-*/.
+# See memory.md.
+# ---------------------------------------------------------------------------
+bingwa-auto-reply/
+app-icons/
