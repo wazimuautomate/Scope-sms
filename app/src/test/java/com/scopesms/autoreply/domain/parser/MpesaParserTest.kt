@@ -1,5 +1,7 @@
 package com.scopesms.autoreply.domain.parser
 
+import com.scopesms.autoreply.domain.money.KshAmount
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -59,13 +61,13 @@ class MpesaParserTest {
         val payment = parse(REAL_SAMPLE)
 
         assertEquals("UGFMXB3GR6", payment.transactionCode)
-        assertEquals(2000L, payment.amountCents)
+        assertEquals(KshAmount(2000), payment.amount)
         assertEquals("0700000000", payment.senderPhone)
         assertEquals("Skycope Bonke", payment.senderName)
         assertEquals("15/7/26", payment.date)
         assertEquals("1:06 PM", payment.time)
-        assertEquals(130022L, payment.balanceCents)
-        assertEquals(0L, payment.transactionCostCents)
+        assertEquals(KshAmount(130022), payment.balance)
+        assertEquals(KshAmount(0), payment.transactionCost)
     }
 
     @Test
@@ -74,7 +76,7 @@ class MpesaParserTest {
         // that aren't in the message as sent.
         val wrapped = REAL_SAMPLE.replace(" received from ", " received from\n")
 
-        assertEquals(2000L, parse(wrapped).amountCents)
+        assertEquals(KshAmount(2000), parse(wrapped).amount)
     }
 
     // --- Amount variance -----------------------------------------------------
@@ -83,21 +85,21 @@ class MpesaParserTest {
     fun `parses an amount with thousands separators`() {
         val payment = parse(REAL_SAMPLE.replace("Ksh20.00 received", "Ksh1,500.00 received"))
 
-        assertEquals(150_000L, payment.amountCents)
+        assertEquals(KshAmount(150000), payment.amount)
     }
 
     @Test
     fun `parses an amount with no decimal part`() {
         val payment = parse(REAL_SAMPLE.replace("Ksh20.00 received", "Ksh50 received"))
 
-        assertEquals(5000L, payment.amountCents)
+        assertEquals(KshAmount(5000), payment.amount)
     }
 
     @Test
     fun `parses an amount with a space after Ksh`() {
         val payment = parse(REAL_SAMPLE.replace("PMKsh20.00", "PM Ksh 20.00"))
 
-        assertEquals(2000L, payment.amountCents)
+        assertEquals(KshAmount(2000), payment.amount)
     }
 
     @Test
@@ -106,7 +108,7 @@ class MpesaParserTest {
         // double is 20.099999999999998; as cents it is 2010, exactly.
         val payment = parse(REAL_SAMPLE.replace("Ksh20.00 received", "Ksh20.10 received"))
 
-        assertEquals(2010L, payment.amountCents)
+        assertEquals(KshAmount(2010), payment.amount)
     }
 
     // --- Name variance (BUILD-PLAN calls these out explicitly) ---------------
@@ -152,10 +154,10 @@ class MpesaParserTest {
                 "254700000000 Skycope Bonke.",
         )
 
-        assertEquals(2000L, payment.amountCents)
+        assertEquals(KshAmount(2000), payment.amount)
         assertEquals("Skycope Bonke", payment.senderName)
-        assertNull(payment.balanceCents)
-        assertNull(payment.transactionCostCents)
+        assertNull(payment.balance)
+        assertNull(payment.transactionCost)
     }
 
     @Test
@@ -164,14 +166,14 @@ class MpesaParserTest {
             REAL_SAMPLE.replace("New Account balance is", "New M-PESA balance is"),
         )
 
-        assertEquals(130022L, payment.balanceCents)
+        assertEquals(KshAmount(130022), payment.balance)
     }
 
     @Test
     fun `parses a non-zero transaction cost`() {
         val payment = parse(REAL_SAMPLE.replace("Transaction cost, Ksh0.00", "Transaction cost, Ksh23.00"))
 
-        assertEquals(2300L, payment.transactionCostCents)
+        assertEquals(KshAmount(2300), payment.transactionCost)
     }
 
     // --- Phone normalisation -------------------------------------------------

@@ -1,5 +1,7 @@
 package com.scopesms.autoreply.domain.parser
 
+import com.scopesms.autoreply.domain.money.KshAmount
+
 /**
  * Turns a raw M-Pesa SMS into an [MpesaPayment], or says why it couldn't.
  *
@@ -143,7 +145,7 @@ object MpesaParser {
             return ParseResult.Rejected(Rejection.WRONG_TRANSACTION_TYPE)
         }
 
-        val amountCents = Money.parseCents(match.group("amount"))
+        val amount = KshAmount.parse(match.group("amount"))
             ?: return ParseResult.Rejected(Rejection.UNREADABLE_AMOUNT)
 
         val phone = normalizeKenyanMsisdn(match.group("phone"))
@@ -152,7 +154,7 @@ object MpesaParser {
         return ParseResult.Parsed(
             MpesaPayment(
                 transactionCode = match.group("code").uppercase(),
-                amountCents = amountCents,
+                amount = amount,
                 senderPhone = phone,
                 // Null rather than "" when absent: Phase 4's template engine has
                 // to make a "Hi there" vs "Hi {name}" decision, and null says
@@ -163,8 +165,8 @@ object MpesaParser {
                 // Optional by design: a message missing these is still a valid
                 // payment, and refusing to reply because the balance clause was
                 // worded unexpectedly would cost the agent a customer.
-                balanceCents = BALANCE.find(text)?.group("balance")?.let(Money::parseCents),
-                transactionCostCents = COST.find(text)?.group("cost")?.let(Money::parseCents),
+                balance = BALANCE.find(text)?.group("balance")?.let(KshAmount::parse),
+                transactionCost = COST.find(text)?.group("cost")?.let(KshAmount::parse),
             ),
         )
     }

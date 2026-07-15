@@ -113,7 +113,7 @@ android {
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
     arg("room.generateKotlin", "true")
-
+}
 
 // No `kotlin { compilerOptions { } }` block: under AGP 9's built-in Kotlin,
 // AGP aligns the Kotlin jvmTarget with `compileOptions` above on its own. If a
@@ -133,6 +133,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.core)
 
     // Phase 1 — SIM selection and onboarding state. First real use of this
     // catalog pin (memory.md flags every "later phases" entry as researched but

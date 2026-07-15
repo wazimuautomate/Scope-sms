@@ -17,6 +17,16 @@ import com.scopesms.autoreply.network.SendOutcome
 class OutboundQueue(
     private val store: OutboundJobStore,
     private val gateway: ScopeSmsGateway,
+    /**
+     * Where a send's outcome goes once it is known. Wired to the activity log by
+     * `di/AppContainer`.
+     *
+     * A port rather than a direct `ActivityLogRepository` dependency: this class
+     * is pure Kotlin over [OutboundJobStore] precisely so its retry rules are
+     * provable on the JVM in CI, and taking a Room repository would drag
+     * Robolectric into every one of those tests.
+     */
+    private val results: SendResultListener = SendResultListener.None,
     /** Injectable so tests don't depend on wall-clock time. */
     private val now: () -> Long = System::currentTimeMillis,
     private val maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
@@ -102,6 +112,7 @@ class OutboundQueue(
         return when (outcome) {
             is SendOutcome.Sent -> {
                 store.markSent(job.id, outcome.messageId)
+                results.onSent(job.transactionCode, outcome.messageId)
                 DrainSummary(sent = 1)
             }
 
@@ -119,20 +130,24 @@ class OutboundQueue(
                         // and hides the real problem, which they must fix in
                         // Settings (network/README.md).
                         store.markFailed(job.id, reason.description)
+                        results.onFailed(job.transactionCode, reason.description)
                         DrainSummary(failed = 1)
                     }
 
                     budgetExhausted -> {
-                        store.markFailed(
-                            job.id,
-                            "${reason.description} (gave up after $attemptsUsed attempts)",
-                        )
+                        val detail = "${reason.description} (gave up after $attemptsUsed attempts)"
+                        store.markFailed(job.id, detail)
+                        results.onFailed(job.transactionCode, detail)
                         DrainSummary(failed = 1)
                     }
 
                     else -> {
                         // Back to PENDING with the reason recorded. WorkManager's
-                        // backoff decides when we try again.
+                        // backoff decides when we try again. Deliberately *not*
+                        // reported to [results]: the activity log row stays
+                        // QUEUED, which is the truth — the reply is still coming.
+                        // Flipping it to FAILED and back would have the agent
+                        // chasing a customer the app is about to text anyway.
                         store.markRetryable(job.id, reason.description)
                         DrainSummary(retryable = 1)
                     }
@@ -156,5 +171,25 @@ class OutboundQueue(
          * a message failed while the customer is still in front of them.
          */
         const val DEFAULT_MAX_ATTEMPTS = 5
+    }
+}
+
+/**
+ * Where the queue reports a send's final outcome.
+ *
+ * Only terminal states are reported. A retryable failure leaves the job PENDING
+ * and says nothing — see the `else` arm of [OutboundQueue.sendOne].
+ */
+interface SendResultListener {
+
+    suspend fun onSent(transactionCode: String, gatewayMessageId: String?)
+
+    /** @param reason `SendFailure.description` — agent-readable, never holds the API key. */
+    suspend fun onFailed(transactionCode: String, reason: String)
+
+    /** For tests and for a queue running before the log exists. */
+    object None : SendResultListener {
+        override suspend fun onSent(transactionCode: String, gatewayMessageId: String?) = Unit
+        override suspend fun onFailed(transactionCode: String, reason: String) = Unit
     }
 }

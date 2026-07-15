@@ -101,20 +101,14 @@ class SmsReceiver : BroadcastReceiver() {
                 // local Room log and nowhere else.
                 Log.i(
                     TAG,
-                    "Parsed payment ${payment.transactionCode} of ${payment.amountCents}c " +
+                    "Parsed payment ${payment.transactionCode} of Ksh ${payment.amount.format()} " +
                         "on slot ${(decision as SimFilterDecision.Process).slotIndex}.",
                 )
 
-                // ── Seam for Phase 3+ ────────────────────────────────────────
-                // Next: match payment.amountCents against the in-memory rule
-                // cache (Phase 3), pick the matched/unmatched template (Phase 4),
-                // check the relevant toggle (Phase 6), and write an OutboundJob
-                // row (Phase 5b). Do the enqueue here and return — do NOT call
-                // the gateway from this receiver (constraint 5).
-                //
-                // Dedupe on payment.transactionCode when wiring Phase 5b: some
-                // OEMs deliver SMS_RECEIVED more than once, and a double send
-                // means the customer is texted twice and the agent pays twice.
+                // Decide, log, and queue. Everything slow or fallible lives
+                // behind this call; the gateway is never touched from here
+                // (constraint 5) — a WorkManager worker drains the queue.
+                container.paymentPipeline.process(payment)
             }
 
             is ParseResult.Rejected -> when (result.reason) {

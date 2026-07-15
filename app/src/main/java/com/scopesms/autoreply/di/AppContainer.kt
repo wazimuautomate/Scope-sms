@@ -6,6 +6,7 @@ import com.scopesms.autoreply.ScopeSmsApplication
 import com.scopesms.autoreply.data.AppDatabase
 import com.scopesms.autoreply.data.log.ActivityLogRepository
 import com.scopesms.autoreply.data.rules.RoomPricingRuleRepository
+import com.scopesms.autoreply.data.settings.GatewayCredentialsStore
 import com.scopesms.autoreply.data.settings.SettingsRepository
 import com.scopesms.autoreply.data.system.BatteryOptimizationManager
 import com.scopesms.autoreply.data.templates.RoomMessageTemplateRepository
@@ -13,10 +14,16 @@ import com.scopesms.autoreply.domain.rules.PricingRuleRepository
 import com.scopesms.autoreply.domain.rules.RuleCache
 import com.scopesms.autoreply.domain.templates.MessageTemplateRepository
 import com.scopesms.autoreply.domain.templates.TemplateCache
+import com.scopesms.autoreply.network.ScopeSmsGateway
+import com.scopesms.autoreply.queue.OutboundQueue
+import com.scopesms.autoreply.queue.RoomOutboundJobStore
+import com.scopesms.autoreply.queue.SendJobWorker
+import com.scopesms.autoreply.queue.SendResultListener
 import com.scopesms.autoreply.reliability.OemSettingsLauncher
 import com.scopesms.autoreply.reliability.ReliabilityInspector
 import com.scopesms.autoreply.reliability.ReliabilityNotifier
 import com.scopesms.autoreply.telephony.AndroidSimReader
+import com.scopesms.autoreply.telephony.PaymentPipeline
 import com.scopesms.autoreply.telephony.SimReader
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
@@ -111,6 +118,59 @@ class AppContainer(context: Context) {
     /** Read by the SMS receive path. Kept current by [start]. */
     val templateCache = TemplateCache()
 
+    // ---- Phase 5/5b: gateway credentials, client, outbound queue ------------
+
+    /**
+     * Encrypted at rest via an Android Keystore AES/GCM key — this is the
+     * resolution of `memory.md` open decision 1. See the class for why
+     * `EncryptedSharedPreferences` was rejected.
+     */
+    val gatewayCredentials: GatewayCredentialsStore by lazy {
+        GatewayCredentialsStore.create(appContext)
+    }
+
+    val gateway: ScopeSmsGateway by lazy { ScopeSmsGateway.create(gatewayCredentials) }
+
+    val outboundQueue: OutboundQueue by lazy {
+        OutboundQueue(
+            store = RoomOutboundJobStore(database.outboundJobDao()),
+            gateway = gateway,
+            // Closes Phase 5's open loop: the queue knew a send's outcome but had
+            // nowhere to report it, so a failed reply updated a job row the agent
+            // never sees. Now it lands in the activity log, which is the one place
+            // BUILD-PLAN Phase 8 says they look.
+            results = activityLogSink,
+        )
+    }
+
+    /** Adapts the activity log to the queue's port. */
+    private val activityLogSink: SendResultListener by lazy {
+        object : SendResultListener {
+            override suspend fun onSent(transactionCode: String, gatewayMessageId: String?) {
+                activityLog.markSent(transactionCode, gatewayMessageId)
+            }
+
+            override suspend fun onFailed(transactionCode: String, reason: String) {
+                activityLog.markFailed(transactionCode, reason)
+            }
+        }
+    }
+
+    /**
+     * The decide path the SMS receiver calls. Phases 2→3→4→6→5b→8, joined.
+     */
+    val paymentPipeline: PaymentPipeline by lazy {
+        PaymentPipeline(
+            ruleCache = ruleCache,
+            templateCache = templateCache,
+            settings = settings,
+            activityLog = activityLog,
+            queue = outboundQueue,
+            credentials = gatewayCredentials,
+            requestDrain = { SendJobWorker.enqueueDrain(appContext) },
+        )
+    }
+
     /**
      * Starts the background work the graph owns. Call once, from
      * `Application.onCreate`.
@@ -133,6 +193,22 @@ class AppContainer(context: Context) {
         applicationScope.launch {
             keepInSync("templates", messageTemplateRepository.observeAll(), templateCache::publish)
         }
+
+        // Anything a previous process left PENDING — queued while the phone had
+        // no data, or stranded when the process died mid-drain — goes out now.
+        // WorkManager's CONNECTED constraint holds it until there's a network,
+        // so this is safe to request on every start, including offline ones.
+        //
+        // On the background scope, never inline, for two reasons that both bite
+        // in production:
+        //  1. `WorkManager.enqueue` writes to its own database. `start()` is
+        //     called from `Application.onCreate`, on the main thread, on every
+        //     process start including the headless ones an incoming SMS causes —
+        //     CLAUDE.md constraint 5 keeps disk I/O off exactly that path.
+        //  2. It can throw when WorkManager's initializer hasn't run — see
+        //     `SendJobWorker.enqueueDrain`, which owns that guard so no caller
+        //     has to remember it.
+        applicationScope.launch { SendJobWorker.enqueueDrain(appContext) }
     }
 
     /**

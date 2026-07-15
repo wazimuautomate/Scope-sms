@@ -46,10 +46,61 @@ value class KshAmount(val cents: Long) : Comparable<KshAmount> {
         return if (fraction == 0) whole.toString() else "%d.%02d".format(whole, fraction)
     }
 
+    /**
+     * True when this is a round number of shillings — no cents.
+     *
+     * Every amount the agent types is one of these; a payment that isn't is a
+     * customer who sent an odd amount, and it correctly matches no bundle.
+     */
+    val isWholeShillings: Boolean get() = cents % 100 == 0L
+
+    /** Whole shillings, truncating any cents. For display and for entry round-trips. */
+    val shillings: Long get() = cents / 100
+
     companion object {
         val ZERO = KshAmount(0)
 
         fun ofShillings(shillings: Long): KshAmount = KshAmount(shillings * 100)
+
+        /**
+         * Parses a bundle price as the agent types it: **whole shillings only.**
+         *
+         * Rejects anything with a decimal point. This is a product rule, not a
+         * technical limit — Bingwa bundle prices are whole shillings ("Ksh 50
+         * buys 2GB"), the client asked for amounts to be plain integers, and a
+         * price list quoting "Ksh 50.00" reads like a spreadsheet rather than
+         * something a person wrote. Rejecting at entry is what makes it true
+         * everywhere else: [format] can then be trusted to render a rule's price
+         * with no decimal point, because no rule can hold one.
+         *
+         * Note the asymmetry with [parse], and that it is deliberate. What the
+         * agent *enters* is constrained to whole shillings; what a customer
+         * *sends* is not, and [parse] keeps the cents faithfully so that a
+         * Ksh 20.50 payment matches nothing rather than being rounded into the
+         * Ksh 20 bundle and confirming a purchase that never happened.
+         *
+         * Returns null for a decimal, a negative, a non-number, or blank —
+         * everything the caller must show as an input error rather than guess at.
+         */
+        fun parseWholeShillings(raw: String): KshAmount? {
+            val text = raw.trim().replace(",", "")
+            if (text.isEmpty()) return null
+            if (!WHOLE_SHILLINGS.matches(text)) return null
+
+            val shillings = text.toLongOrNull() ?: return null
+            // Guards the multiplication below: Long.MAX/100 shillings is already
+            // absurd for a bundle price, and overflowing would wrap to a negative
+            // that could compare equal to something unrelated.
+            if (shillings > MAX_SHILLINGS) return null
+
+            return ofShillings(shillings)
+        }
+
+        /** Digits only — no sign, no decimal point, no exponent. */
+        private val WHOLE_SHILLINGS = Regex("""\d+""")
+
+        /** Well beyond any real bundle price; exists only to keep [ofShillings] from overflowing. */
+        private const val MAX_SHILLINGS = Long.MAX_VALUE / 100
 
         /**
          * Parses an amount as it appears in an M-Pesa SMS, or returns null if

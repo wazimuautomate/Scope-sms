@@ -128,6 +128,14 @@ androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 
+# Phase 7 — the Icons.Default.* set used by the bottom bar and status cards.
+# Material3 does NOT bring this transitively (a real surprise found by the first
+# local compile: every `Icons.Default.Home` was an unresolved reference).
+# Deliberately -core, not -extended: extended is ~10MB of vectors for a handful
+# of icons, and every one this app uses (Home, Edit, Settings, ShoppingCart,
+# List, CheckCircle, Info, Warning, Add, Delete, Search) is in core.
+androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
+
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 # --- Later phases (see caveat above) ---------------------------------------

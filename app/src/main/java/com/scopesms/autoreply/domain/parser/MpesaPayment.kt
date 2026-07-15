@@ -1,5 +1,7 @@
 package com.scopesms.autoreply.domain.parser
 
+import com.scopesms.autoreply.domain.money.KshAmount
+
 /**
  * A successfully parsed M-Pesa **money-received** confirmation.
  *
@@ -12,9 +14,13 @@ data class MpesaPayment(
     val transactionCode: String,
 
     /**
-     * Amount in **cents** (1/100 KES). See [Money] for why this isn't a Double.
+     * What the customer actually paid.
+     *
+     * [KshAmount] is the app's canonical money type — integer-backed, so the
+     * `payment.amount == rule.amount` comparison the whole app hinges on is
+     * exact. See that class for why this is not a Double and not a bare Int.
      */
-    val amountCents: Long,
+    val amount: KshAmount,
 
     /**
      * The payer's number as it appeared in the SMS, normalised to local
@@ -38,58 +44,9 @@ data class MpesaPayment(
     /** Raw time as printed, e.g. `1:06 PM`. */
     val time: String,
 
-    /** The agent's new till balance in cents, or null if the message omitted it. */
-    val balanceCents: Long?,
+    /** The agent's new till balance, or null if the message omitted it. */
+    val balance: KshAmount?,
 
-    /** Transaction cost in cents, or null if omitted. */
-    val transactionCostCents: Long?,
+    /** Transaction cost, or null if omitted. */
+    val transactionCost: KshAmount?,
 )
-
-/**
- * Helpers for money as integer cents.
- *
- * ### Why cents, and why this matters beyond this file
- * The whole app hinges on `amount == rule.amount`. Doubles make that comparison
- * a lie: `20.00` isn't necessarily `20.00` after a parse, and a bundle priced at
- * 20 could fail to match a 20-shilling payment — which would send the customer a
- * "you paid the wrong amount" price list for a payment that was exactly right.
- * Integer cents make equality exact.
- *
- * **Phase 3 must store `PricingRule.amount` in cents too.** BUILD-PLAN's schema
- * just says `amount`; this is the concrete choice, recorded in memory.md. A rule
- * table in shillings and a parser in cents would match nothing at all.
- */
-object Money {
-
-    /**
-     * Parses an M-Pesa amount string (`20.00`, `1,300.22`, `20`) to cents.
-     * Returns null if it isn't a well-formed amount.
-     */
-    fun parseCents(raw: String): Long? {
-        // M-Pesa groups thousands: "Ksh1,300.22".
-        val cleaned = raw.replace(",", "").trim()
-        if (cleaned.isEmpty()) return null
-
-        val parts = cleaned.split(".")
-        if (parts.size > 2) return null
-
-        val shillings = parts[0].toLongOrNull() ?: return null
-        if (shillings < 0) return null
-
-        val cents = when (parts.size) {
-            1 -> 0L
-            else -> {
-                // "20.5" means 50 cents, not 5. Pad before reading.
-                val fraction = parts[1]
-                if (fraction.isEmpty() || fraction.length > 2) return null
-                fraction.padEnd(2, '0').toLongOrNull() ?: return null
-            }
-        }
-        if (cents < 0) return null
-
-        return shillings * 100 + cents
-    }
-
-    /** Renders cents for display: `2000` → `"20.00"`. */
-    fun format(cents: Long): String = "${cents / 100}.${(cents % 100).toString().padStart(2, '0')}"
-}
