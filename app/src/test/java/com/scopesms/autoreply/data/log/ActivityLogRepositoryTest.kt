@@ -211,17 +211,24 @@ class ActivityLogRepositoryTest {
 
     @Test
     fun `the day boundary is local midnight, not UTC midnight`() = runTest {
-        // Nairobi is UTC+3, so 00:30 local on the 16th is 21:30 UTC on the 15th.
-        // A UTC-based boundary would file this under yesterday and the agent's
-        // early-morning traffic would vanish from the dashboard.
-        val justAfterLocalMidnight = Instant.parse("2026-07-15T21:30:00Z")
-        record("EARLY", MatchType.UNMATCHED, NotifyStatus.SENT, at = justAfterLocalMidnight)
+        // Both instants fall on 15 July *in UTC*, so a UTC-based boundary would
+        // file them under the same day and this test could not tell the two
+        // implementations apart. In Nairobi (UTC+3) they straddle local midnight:
+        //
+        //   21:30Z on the 15th -> 00:30 on the 16th, local  -> today
+        //   20:30Z on the 15th -> 23:30 on the 15th, local  -> yesterday
+        //
+        // Exactly one counts. Getting this wrong would hide the agent's
+        // early-morning traffic from the dashboard until 3am local.
+        record("JUST_AFTER_LOCAL_MIDNIGHT", MatchType.UNMATCHED, NotifyStatus.SENT, at = Instant.parse("2026-07-15T21:30:00Z"))
+        record("JUST_BEFORE_LOCAL_MIDNIGHT", MatchType.UNMATCHED, NotifyStatus.SENT, at = Instant.parse("2026-07-15T20:30:00Z"))
 
-        // And 23:30 UTC on the 15th is 02:30 local on the 16th — also today.
-        val justBeforeLocalMidnight = Instant.parse("2026-07-15T20:30:00Z")
-        record("EARLIER", MatchType.UNMATCHED, NotifyStatus.SENT, at = justBeforeLocalMidnight)
+        val today = repository.search(
+            since = LocalDate.now(clock).atStartOfDay(nairobi).toInstant().toEpochMilli(),
+        ).first()
 
-        assertEquals(2, repository.statsForToday().first().processed)
+        assertEquals(1, repository.statsForToday().first().processed)
+        assertEquals(listOf("JUST_AFTER_LOCAL_MIDNIGHT"), today.map { it.transactionCode })
     }
 
     // --- Search / filter ----------------------------------------------------
