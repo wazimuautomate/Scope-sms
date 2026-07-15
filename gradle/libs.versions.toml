@@ -1,0 +1,151 @@
+# Version catalog — single source of truth for every dependency version.
+#
+# Versions were verified against primary sources (developer.android.com,
+# Google Maven, Maven Central) on 2026-07-15. Do not bump anything here from
+# memory or habit: there is no local build on this project, so a bad pin is
+# only discovered by a red CI run. Check the real metadata first.
+#
+# Two sections below. Everything under [versions]/[libraries] marked "Phase 0"
+# is compiled and proven green by CI today. Everything marked "later phases"
+# is researched but NOT yet exercised by any build — the phase that first uses
+# one is responsible for confirming it resolves. See memory.md.
+
+[versions]
+
+# --- Toolchain (Phase 0 — CI-verified) ------------------------------------
+#
+# AGP 9.2.1, not 9.2.0: 9.2.0 has a known R8 bug that throws
+# `ClassNotFoundException: com.android.tools.r8.RecordTag`, fixed in 9.2.1.
+# Not 9.3.0 either — it's stable but only days old, and it would pull Gradle
+# 9.5.0 with it. CLAUDE.md constraint 9 says correctness over speed of
+# delivery; there is nothing in 9.3.0 this app needs.
+agp = "9.2.1"
+
+# MUST track AGP. AGP 9.2.x requires Gradle 9.4.1 (9.3.0 would require 9.5.0).
+# Also set in gradle/wrapper/gradle-wrapper.properties — change both together.
+gradle = "9.4.1"
+
+# This is AGP 9.2.1's OWN bundled Kotlin version, and that is the entire
+# reason it's pinned here rather than at the newest release (2.4.10).
+#
+# Two things drive it:
+#  1. AGP 9 compiles Kotlin itself ("built-in Kotlin"). Applying the
+#     `org.jetbrains.kotlin.android` plugin is now a hard build failure, not a
+#     warning. Only the Compose compiler plugin is applied, and its version
+#     must equal the Kotlin version — hence this single pin.
+#  2. Kotlin's own compatibility table only certifies KGP up to AGP 9.1.0, so
+#     *no* Kotlin release is officially certified against AGP 9.2. Overriding
+#     AGP's bundled compiler to 2.4.10 is possible but the mechanism is poorly
+#     documented, and it would move us further from the one combination Google
+#     actually tests: AGP 9.2.1 + its bundled 2.2.10.
+#
+# Nothing this app does needs a 2.3/2.4 language feature. Revisit only with a
+# concrete reason, and log it in memory.md.
+kotlin = "2.2.10"
+
+composeBom = "2026.06.01"   # → compose ui/runtime 1.11.4, material3 1.4.0
+
+# --- AndroidX (Phase 0 — CI-verified) -------------------------------------
+coreKtx = "1.19.0"
+activityCompose = "1.13.0"
+lifecycle = "2.11.0"
+
+# --- Testing (Phase 0 — CI-verified) --------------------------------------
+junit = "4.13.2"
+
+# --- Later phases — researched, NOT yet CI-verified ------------------------
+# Declared so the owning phase doesn't have to redo this research. Unused
+# entries are never resolved by Gradle, so a wrong pin here stays silent until
+# first use. Confirm before relying on it.
+
+# Phase 3/4/5b/8 — Room. Use ksp(), never kapt: kapt is incompatible with
+# AGP 9's built-in Kotlin.
+room = "2.8.4"
+# KSP moved to independent versioning at 2.3.0 (the old "<kotlin>-<ksp>"
+# scheme is gone; any doc still describing it is stale). AGP 9 requires
+# KSP >= 2.3.6.
+ksp = "2.3.10"
+
+# Phase 5b — WorkManager, for draining the outbound send queue.
+work = "2.11.2"
+
+# Phase 1/6 — DataStore, for SIM choice + the two notification toggles.
+datastore = "1.2.1"
+
+# Phase 5 — SCOPE SMS gateway client.
+# Retrofit 3.0.0 ships OkHttp 4.12 by default; pinning OkHttp 5.4.0 here is a
+# deliberate override (they're binary-compatible).
+retrofit = "3.0.0"
+okhttp = "5.4.0"
+moshi = "1.15.2"
+
+# Phase 2+ — testing.
+coroutinesTest = "1.11.0"
+# Robolectric needs JDK 21 to run against SDK 36. CI currently provisions
+# JDK 17, so the phase that adds Robolectric must bump the workflow. Prefer
+# JVM-pure tests over Robolectric wherever the code allows it.
+robolectric = "4.16.1"
+# Coordinate renamed in OkHttp 5.x: mockwebserver3-junit4.
+mockwebserver = "5.4.0"
+truth = "1.4.5"
+
+# NOTE — androidx.security:security-crypto is deliberately ABSENT.
+# 1.1.0 is "stable" but every API in it is deprecated, and it has known
+# keyset-corruption crashes on exactly the OEM devices this app targets
+# (Tecno/Infinix/itel/Xiaomi). Do not add it for the gateway API key without
+# reading the storage decision in memory.md first.
+
+[libraries]
+
+# --- Phase 0 ---------------------------------------------------------------
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+# --- Later phases (see caveat above) ---------------------------------------
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
+androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "work" }
+
+androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+
+retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+retrofit-converter-moshi = { group = "com.squareup.retrofit2", name = "converter-moshi", version.ref = "retrofit" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+moshi-kotlin = { group = "com.squareup.moshi", name = "moshi-kotlin", version.ref = "moshi" }
+
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+mockwebserver3-junit4 = { group = "com.squareup.okhttp3", name = "mockwebserver3-junit4", version.ref = "mockwebserver" }
+truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
+
+[plugins]
+
+android-application = { id = "com.android.application", version.ref = "agp" }
+
+# The Compose compiler plugin. Its version tracks `kotlin` above.
+#
+# There is deliberately NO `org.jetbrains.kotlin.android` entry here. AGP 9
+# has built-in Kotlin support and applying that plugin fails the build with
+# "The 'org.jetbrains.kotlin.android' plugin is no longer required for Kotlin
+# support since AGP 9.0." If you're porting a snippet from an AGP 8-era
+# tutorial, this is the line to drop.
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

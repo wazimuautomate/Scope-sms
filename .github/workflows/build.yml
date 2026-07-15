@@ -1,0 +1,84 @@
+name: Build
+
+# CI is not a convenience on this project — it is the only compiler.
+# There is no local Android Studio (CLAUDE.md constraint 8), so "it builds"
+# means "this workflow went green", and the agent installs the APK this
+# workflow uploads.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same branch makes the older run irrelevant. Cancel it
+# rather than queueing behind it — several phases are being built in parallel
+# and they share this runner pool.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Unit tests + debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      # gradle-wrapper.jar is a binary committed to this repo (CI runs
+      # ./gradlew and has no other way to bootstrap Gradle). This checks it
+      # against Gradle's published checksums on every run, so a tampered or
+      # swapped wrapper can't quietly execute arbitrary code in the build that
+      # produces the agent's APK.
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+
+      # JDK 17 is what AGP 9.2 requires. Known future snag: Robolectric needs
+      # JDK 21 to run tests against SDK 36, so whichever phase first adds
+      # Robolectric will likely bump this runner to 21 while leaving
+      # jvmTarget/compileOptions at 17 (17 is AGP's minimum, not its maximum).
+      # Nothing here needs it yet — see memory.md.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Handles Gradle's own caching; no separate actions/cache step needed.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Run unit tests
+        run: ./gradlew test --stacktrace
+
+      # Uploaded even when tests pass, but the reason it exists is failure:
+      # with no local build, this HTML report is the only way to see which
+      # assertion broke without re-running anything.
+      - name: Upload test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report-${{ github.run_number }}
+          path: app/build/reports/tests/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      # This is what the agent downloads and installs on a real device.
+      # Named with the short SHA so a downloaded APK can always be traced back
+      # to the commit that produced it.
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: scope-sms-debug-${{ github.run_number }}-${{ github.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+          if-no-files-found: error
