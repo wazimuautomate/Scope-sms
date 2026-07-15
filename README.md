@@ -29,8 +29,8 @@ gateways.
 | Phase | Scope | State |
 | --- | --- | --- |
 | **0** | Repo, scaffolding & CI pipeline | ✅ Done |
-| 1 | Permissions & SIM identification | Not started |
-| 2 | SMS ingestion & M-Pesa parser | Not started |
+| **1** | Permissions & SIM identification | 🟡 Code-complete — [needs a real-device check](#verifying-phase-1-on-a-real-device) |
+| **2** | SMS ingestion & M-Pesa parser | 🟡 Code-complete — [needs real sample messages](#what-we-need-from-the-agent) |
 | 3 | Rules engine + in-memory cache | Not started |
 | 4 | Two message template types | Not started |
 | 5 | SCOPE SMS gateway client | Not started |
@@ -42,8 +42,63 @@ gateways.
 | 10 | Cross-version testing | Not started |
 | 11 | Release packaging & distribution | Not started |
 
-The app currently builds, installs, and shows a placeholder screen. It does
-not read or send anything yet.
+The app currently builds and installs. It shows a plain setup screen where the
+agent grants permissions, picks which SIM receives M-Pesa, and turns off battery
+optimisation. It reads and parses incoming M-Pesa payments and logs what it
+found — **it does not reply to anyone yet.** Replying needs the rules engine
+(Phase 3), templates (Phase 4) and the gateway client (Phase 5).
+
+🟡 means the code is written and CI is green, but the phase's own exit criterion
+hasn't been met — both remaining criteria need the agent, not the developer. See
+below.
+
+---
+
+## What we need from the agent
+
+Two things block real progress, and neither can be solved by writing more code.
+
+### 1. Real M-Pesa sample messages (blocks Phase 2 for real)
+
+We have **one** sample. The parser was built against it and its test suite is
+green, but every other case in that suite is a *guess* at how M-Pesa words
+things — not an observed message. Safaricom's till-confirmation wording has
+known minor variants, and a variant we haven't seen is a payment the app
+silently ignores.
+
+**Please send 5–10 real till-confirmation SMS**, copied as text, with account
+numbers redacted. The more variety the better:
+
+- different amounts (with and without decimals; over 1,000 so we see comma
+  grouping)
+- long names, short names, names with initials
+- any that look unusual or worded differently
+
+### 2. A real dual-SIM device check (blocks Phase 1)
+
+Emulators cannot validate dual-SIM behaviour, and there's no test handset in
+this workflow. See below.
+
+### Verifying Phase 1 on a real device
+
+Install the CI APK (see [Building](#building)) on the agent's actual dual-SIM
+phone, then:
+
+1. Open the app. Tap **Grant permissions** and allow each prompt.
+2. **Both SIMs should be listed** under "Which SIM receives M-Pesa?", each
+   showing SIM 1 / SIM 2 and its carrier (a phone number too, if the SIM has one
+   stored — many don't; that's expected and fine).
+3. Pick the SIM that receives M-Pesa payments.
+4. Tap **Turn off battery optimisation** and allow it. The screen should then
+   read "✓ Battery optimisation is off for Scope SMS."
+5. **Close the app fully and reopen it** — your SIM choice must still be
+   selected.
+6. **Restart the phone and open the app** — your SIM choice must *still* be
+   selected.
+
+If steps 2, 5 or 6 fail, that's a real bug — please report what the screen
+showed, plus the phone's brand and Android version. Everything else on that
+screen is throwaway scaffolding that Phase 7 replaces with the real design.
 
 ---
 
@@ -78,7 +133,12 @@ Full end-user install instructions are written in Phase 11.
 ### Toolchain
 
 Pinned in `gradle/libs.versions.toml`; CI provisions everything. JDK 17,
-`minSdk 30` (Android 11), `compileSdk`/`targetSdk` 36 (Android 16).
+`minSdk 30` (Android 11), `compileSdk 37`, `targetSdk 36`.
+
+`compileSdk` and `targetSdk` differ deliberately — 37 is forced by current
+AndroidX, while targeting 36 declines Android 17's month-old runtime behaviour
+changes in the areas that would hurt most here (background execution, broadcast
+delivery, telephony). Phase 10 owns revisiting it; see `memory.md`.
 
 `minSdk 30` is a hard floor, not a default — the target market is low-end
 Android 11/12 devices (Tecno, Infinix, itel, Xiaomi are common among agents in

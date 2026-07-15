@@ -11,9 +11,9 @@
 | Phase | Scope | State |
 | --- | --- | --- |
 | **0** | Repo, scaffolding & CI pipeline | ✅ **Done** — CI green, APK artifact verified downloadable |
-| 1 | Permissions & SIM identification | Not started |
-| 2 | SMS ingestion & M-Pesa parser | Not started |
-| 3 | Rules engine + in-memory cache | Not started |
+| **1** | Permissions & SIM identification | 🟡 **Code-complete, CI green (PR #2)** — real-device exit criterion NOT met, see below |
+| **2** | SMS ingestion & M-Pesa parser | 🟡 **Code-complete, CI green (PR #3)** — exit criterion NOT met: still only 1 real sample |
+| 3 | Rules engine + in-memory cache | Not started — ⚠️ **read "Money is cents" below before writing the entity** |
 | 4 | Two message template types | Not started |
 | 5 | SCOPE SMS gateway client | Not started |
 | 5b | Outbound queue & burst-speed | Not started |
@@ -57,25 +57,148 @@ full reasoning. Phase 10 should evaluate 37 against a real Android 17 device.
 CLAUDE.md constraint 1 says "target latest stable", so this is a **deliberate,
 flagged deviation**, not an oversight.
 
-### 3. DI: manual vs Hilt (owned by whichever phase first needs it — likely 3)
-Phase 0 established **neither**, deliberately — a scaffold with one Activity
-has nothing to inject and guessing wrong forces a later unpick. CLAUDE.md says
-"whichever is already established... check memory.md" — so: **nothing is
-established yet. First phase that needs it decides and records it here.**
-Constraint to respect: a `BroadcastReceiver` is constructed by the system, so
-the object graph must be reachable from process scope. See
-`app/src/main/java/com/scopesms/autoreply/di/README.md`.
+### ~~3. DI: manual vs Hilt~~ → ✅ **RESOLVED in Phase 1: manual DI**
+`AppContainer`, built by `ScopeSmsApplication`, reached via
+`AppContainer.from(context)` — which is how the `BroadcastReceiver` (constructed
+by the system, handed nothing) gets the graph.
+
+Why not Hilt: the graph is a handful of process-scoped singletons and will stay
+that way; Hilt needs KSP, and CI is this project's only compiler, so every
+annotation processor is a per-push cost and one more failure mode nobody can
+reproduce locally (Room forces KSP in Phase 3 — that one is unavoidable, this
+one wasn't); and `@AndroidEntryPoint` would have hidden the process-scope
+lookup, not removed it.
+
+**Settled — don't relitigate per phase.** Two rules for anything added to the
+container: everything stays `by lazy` (it is constructed on every headless
+process start an incoming SMS causes), and nothing holds an Activity `Context`.
 
 ### 4. Default state of the two notification toggles (owned by Phase 6)
 BUILD-PLAN explicitly says confirm with the agent, don't assume. Starting
 recommendation in the plan: unmatched=ON (the original pain point),
 matched=OFF (higher volume, sender-ID ban risk). **Still unconfirmed.**
 
-### 5. Real M-Pesa sample messages (blocks Phase 2)
+### 5. Real M-Pesa sample messages — 🔴 STILL OPEN, and Phase 2 shipped anyway
 We have **exactly one** real till-confirmation sample (in CLAUDE.md).
 BUILD-PLAN Phase 2 requires 5–10 more real redacted samples from the agent
-before the regex is finalised. **This is a hard blocker for Phase 2** — one
-sample cannot validate variant handling. Someone needs to ask the client.
+before the regex is finalised. One sample cannot validate variant handling.
+**Someone still needs to ask the client.**
+
+**Status after Phase 2 (be honest about this):** the parser is written and its
+84-test suite is green, but every case beyond the single CLAUDE.md sample is a
+*constructed* variant — a hypothesis about M-Pesa's wording, not an observed
+message. They are labelled as such at the top of `MpesaParserTest`. So Phase 2's
+exit criterion ("tests pass against all collected real sample messages") is met
+only in the vacuous sense that we collected one.
+
+What this means concretely for whoever gets the samples:
+- `MpesaParser.PATTERNS` is an **ordered list** precisely so a new real variant
+  is a new entry + a test, not a rewrite. Add, don't restructure.
+- A `Rejection.NOT_A_RECEIVED_MESSAGE` seen in the wild means *the regex is
+  wrong*, not *the message was junk*. It's logged at WARN for that reason.
+  `WRONG_TRANSACTION_TYPE` is the boring one and logs at DEBUG.
+- The riskiest untested assumption is **the sender rule** (see gotchas below).
+
+---
+
+## Decisions made in Phases 1–2 (and why)
+
+### 🔴 Money is **integer cents** everywhere — Phase 3 must match
+`MpesaPayment.amountCents: Long`. `Money.parseCents()` / `Money.format()` in
+`domain/parser/MpesaPayment.kt` are the only conversions.
+
+**Phase 3: `PricingRule.amount` must be stored in cents too.** BUILD-PLAN's
+schema just says `amount`, so this is the concrete choice. A rule table in
+shillings against a parser in cents matches *nothing at all* — the app would go
+live and silently reply to every single payment as "unmatched".
+
+Why not `Double`: the app's core operation is `payment.amount == rule.amount`.
+`20.10` as a double is `20.099999999999998`, so a bundle priced at 20.10 could
+fail to match a payment of exactly 20.10 — and the customer gets a "you paid the
+wrong amount" price list for a payment that was right. Integer cents make
+equality exact. `Money.parseCents` also refuses `> Long.MAX` rather than
+overflowing to a negative that could match an unrelated rule.
+
+### 🔴 SIM choice is keyed on **physical slot**, not subscription ID
+`SimSelection` stores slot indices (`ALL` or `SLOTS:0,1`), never subscription
+IDs.
+
+Subscription IDs are **not stable**: re-seat a SIM, factory reset, or on some
+OEMs just reboot, and the same card returns with a different ID — BUILD-PLAN
+Phase 9 already flags the reordering. Persisting one as the agent's choice means
+their setting silently starts pointing at the *other* SIM, i.e. their personal
+one. That is CLAUDE.md constraint 4's worst case, arriving with no error and no
+warning. A physical slot ("the SIM in tray 1") survives all of it and is also
+what the agent actually reasons about.
+
+The cost, and it's real: the SMS intent carries a *subscription ID*, so the
+receiver resolves subId → slot at delivery time via
+`SimReader.slotForSubscriptionId()`. That's the price of a setting that doesn't
+rot. **Phase 9's "re-validate saved subscription IDs after reboot" task is
+therefore mostly already handled** — there is no saved subscription ID to
+re-validate. What Phase 9 should still check is that the *slot* the agent picked
+still holds a SIM.
+
+### Unresolvable SIM slot → drop, except when unambiguous
+`SimFilter` returns `Drop(UNRESOLVED_SLOT)` when the slot can't be determined
+*and* several SIMs are active. Constraint 4 ranks a misdirected reply above a
+missed one, and that is exactly the trade: process it and we might text the
+agent's private contact; drop it and one customer misses an automated price
+list.
+
+The exception: with a **single active SIM** there is only one place the message
+can have come from, so a missing extra is still unambiguous and we process it.
+This matters because missing/renamed SMS_RECEIVED extras are precisely what
+low-end OEM builds get wrong.
+
+### Sender must be the M-Pesa shortcode — ⚠️ needs a real-device check
+`MpesaParser.isMpesaSender()` requires the originating address to match
+`^M-?PESA$`. This is a **security control**: without it, anyone who knows the
+agent's number can text a fake "Ksh20.00 received from …" and make the app send
+a stranger an SMS at the agent's expense — and, once Phase 8 lands, poison their
+books with a payment that never happened. The originating address is set by the
+network, so an ordinary sender can't forge it.
+
+**Verified from documentation, not from the agent's handset.** If real payments
+are ever dropped, this is the first place to look. The offending address is
+logged (`"Ignoring SMS from non-M-Pesa sender 'X'"`) for exactly that reason.
+
+### Battery-exemption status is read live, never persisted
+CLAUDE.md's architecture section lists it among the DataStore settings.
+`BatteryOptimizationManager.isExempt()` reads `PowerManager` on every call
+instead, and `SettingsRepository` carries a comment saying why.
+
+The agent can revoke the exemption in system settings at any moment, and an OEM
+battery manager can revoke it *for* them with no signal to us. A persisted copy
+goes stale silently — and then Settings shows a confident green "protected"
+badge for an app the system is actively killing, which is the exact failure the
+indicator exists to reveal.
+
+### `READ_PHONE_NUMBERS` added beyond the plan's permission set
+BUILD-PLAN Phase 1 lists the permissions to request and this isn't among them,
+but it also asks for "display number if available" — and from API 33,
+`SubscriptionInfo.getNumber()` requires this specific permission;
+READ_PHONE_STATE alone returns blank. Both of the agent's SIMs may well be
+Safaricom, in which case "Safaricom / Safaricom" disambiguates nothing and the
+number is the only thing that does. Marked `isOptional`: deny it and the picker
+degrades to slot + carrier.
+
+### The hot path does no disk I/O
+`SettingsRepository` keeps a `@Volatile` snapshot of the SIM selection;
+`ScopeSmsApplication.onCreate` starts collecting the flow so the snapshot is
+warm by the time the receiver asks (constraint 5). DataStore caches in memory
+after its first read anyway, so this is belt-and-braces — but the SIM filter is
+the one place where "cheap in practice" wasn't good enough.
+
+Corollary for Phase 3/4: do the same for rules and templates. `AppContainer` is
+where the cache goes.
+
+### Everything that reads settings falls back rather than throws
+`SimSelection.decode()` returns the default for null/blank/corrupt/unknown
+input, and `SettingsRepository` swallows `IOException` into `emptyPreferences()`.
+Both run on the SMS path, where an exception would take out ingestion entirely —
+turning a bad *setting* into a total outage. A wrong SIM filter the agent can
+see and fix; an app that stopped receiving they cannot.
 
 ---
 
@@ -186,6 +309,55 @@ vacuously.
 
 ## Gotchas discovered (save the next session the debugging)
 
+### 🔴 Parallel sessions share ONE working directory — this bit us
+All sessions are working in the same checkout, not separate worktrees. Observed
+during Phase 1/2, not theorised:
+- A `git add -A` swept another session's `Design.md` into a Phase 1 commit (had
+  to be untracked in a follow-up).
+- The Phase 9 session edited `AndroidManifest.xml` and `AppContainer.kt` *while
+  Phase 2 was committing them*. Phase 2's commit was clean only by luck of
+  timing.
+- Untracked files follow you across `git checkout`, so another session's
+  in-progress work is visible on — and committable to — your branch.
+
+**Rules until this changes:** `git add` explicit paths, never `-A`/`.`. Check
+`git status` before every commit and confirm every file listed is yours. Don't
+switch branches while another session is mid-edit. Consider `git worktree` per
+session — that would remove the whole class of problem.
+
+### Kotlin enum entries can't read their own companion's constants
+`minSdkInclusive = SDK_TIRAMISU` inside an enum entry fails with *"Companion
+object of enum class 'AppPermission' is uninitialized here"* — entries are
+constructed before the companion initialises. Cost a red CI run. Fix: file-level
+`private const`, re-exposed by the companion. See the top of `AppPermission.kt`.
+
+### Reading intent extras: never pass a default
+`intent.getIntExtra("slot", 0)` turns every device that doesn't publish the key
+into a confident **"slot 0"** — a wrong answer wearing a right one's clothes, on
+the highest-severity decision in the app. `SmsReceiver.readInt()` returns null
+instead, and also accepts Long/String because some OEMs write the value with the
+wrong type (a `ClassCastException` there would crash the receiver).
+
+There is no single reliable extra for "which SIM": AOSP uses `"subscription"`,
+`SubscriptionManager` documents `EXTRA_SUBSCRIPTION_INDEX`, and OEMs invented
+their own. `SubscriptionExtras` tries them in a defined precedence — some builds
+ship several keys with *different values*, so the order is load-bearing, not
+cosmetic.
+
+### DataStore 1.2.1 resolves and works — first catalog "later phases" pin proven
+Phase 0 flagged every unused catalog entry as researched-but-never-resolved.
+`androidx.datastore:datastore-preferences:1.2.1` is now exercised by a green CI
+build. The rest (Room, WorkManager, Retrofit, OkHttp, Moshi, Robolectric, Truth)
+are still unproven.
+
+### `SubscriptionInfo.getNumber()` is mostly useless — don't key logic on it
+Returns empty far more often than not (Kenyan SIMs commonly have no number
+provisioned on the card), needs READ_PHONE_NUMBERS from API 33, and is
+deprecated from 33 in favour of `SubscriptionManager.getPhoneNumber(int)`. We
+deliberately do **not** branch to the new API: same permission, same failure
+modes, and the value is only ever a label on a radio button. `SimInfo.phoneNumber`
+is nullable and every caller treats it as decoration.
+
 ### Windows authoring → Linux CI: `gradlew` line endings
 Repo is authored on Windows, built on Linux runners. Without `.gitattributes`
 forcing LF, `gradlew` checks out with CRLF and CI dies on the shebang:
@@ -267,12 +439,38 @@ automatically. Cosmetic; worth raising with the client before Phase 11.
 
 ## Deviations from the build plan (per workflow rule 7)
 
+0. **Phases 1 and 2 were merged to `main` with their exit criteria unmet.**
+   The most important entry here — read it before treating either as done.
+   - Phase 1's criterion is a **real dual-SIM device** listing both SIMs and
+     persisting the filter across restart and reboot. There is no device in this
+     workflow; only the agent can run it.
+   - Phase 2's criterion is the suite passing against **all collected real
+     samples**, and we have one (open decision 5).
+
+   They were shipped anyway because Phases 3/4/5 are being built in parallel and
+   all of them need `AppContainer`, `SettingsRepository` and `Money` — blocking
+   on a device test nobody here can run would have stalled every other session.
+   The trade is deliberate and reversible; both are **code-complete, not
+   verified-complete**, and neither should be called done in a client update
+   until the agent has run the checks in `README.md`.
+
 1. **`targetSdk 36`, not "latest stable" (37)** — reasoned above, flagged for
    Phase 10. This is the only deviation from a stated constraint.
 2. **Phase 0's test step exceeds the plan.** The plan permits a trivially
    passing test; we ship real architecture guards instead. Strictly more than
    asked for, but justified by the parallel-session risk.
-3. **Doc filenames don't match the docs' own references.** `CLAUDE.md` and
+3. **`READ_PHONE_NUMBERS` and `ACCESS_NETWORK_STATE` added** beyond BUILD-PLAN
+   Phase 1's listed permission set — the first to satisfy the plan's own
+   "display number if available" (impossible without it from API 33), the second
+   for Phase 5b's network-constrained queue worker. Both reasoned above.
+
+4. **Phase 1 ships a UI the plan didn't ask for.** `SetupScreen` is deliberately
+   plain — no design language, no motion, no attempt at the Stitch layouts.
+   Phase 1's exit criteria can only be proven by tapping through on a real
+   device, and that needs something installable. **Phase 7 should replace it
+   outright**, not extend it.
+
+5. **Doc filenames don't match the docs' own references.** `CLAUDE.md` and
    `BUILD-PLAN.md` both refer to **`02-BUILD-PLAN.md`** (actual file:
    `BUILD-PLAN.md`) and **`01-UI-DESIGN-PROMPT.md`**, which **does not exist in
    the repo at all**. The UI spec Phase 7 is told to implement is therefore
