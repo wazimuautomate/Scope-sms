@@ -88,7 +88,7 @@ class RoomCacheSyncTest {
     // --- CRUD keeps the cache in sync ---------------------------------------
 
     @Test
-    fun `an inserted rule reaches the cache`() = runBlocking {
+    fun `an inserted rule reaches the cache`() = runBlocking<Unit> {
         val cache = RuleCache()
         startRuleSync(cache)
 
@@ -100,7 +100,7 @@ class RoomCacheSyncTest {
     }
 
     @Test
-    fun `an edited price is quoted, not the old one`() = runBlocking {
+    fun `an edited price is quoted, not the old one`() = runBlocking<Unit> {
         // The stale-cache bug this whole design exists to prevent: the agent
         // re-prices a bundle, and the next customer must not be told the old
         // description.
@@ -119,7 +119,7 @@ class RoomCacheSyncTest {
     }
 
     @Test
-    fun `a deleted rule leaves the cache`() = runBlocking {
+    fun `a deleted rule leaves the cache`() = runBlocking<Unit> {
         val cache = RuleCache()
         startRuleSync(cache)
         val id = rules.upsert(PricingRule(0, KshAmount.ofShillings(20), "1GB Daily"))
@@ -133,7 +133,7 @@ class RoomCacheSyncTest {
     }
 
     @Test
-    fun `deactivating a rule stops it matching without deleting it`() = runBlocking {
+    fun `deactivating a rule stops it matching without deleting it`() = runBlocking<Unit> {
         val cache = RuleCache()
         startRuleSync(cache)
         val id = rules.upsert(PricingRule(0, KshAmount.ofShillings(20), "1GB Daily"))
@@ -146,7 +146,7 @@ class RoomCacheSyncTest {
     }
 
     @Test
-    fun `isActive survives the SQLite round trip`() = runBlocking {
+    fun `isActive survives the SQLite round trip`() = runBlocking<Unit> {
         rules.upsert(PricingRule(0, KshAmount.ofShillings(20), "Active bundle", isActive = true))
         rules.upsert(PricingRule(0, KshAmount.ofShillings(50), "Paused bundle", isActive = false))
 
@@ -157,14 +157,14 @@ class RoomCacheSyncTest {
     }
 
     @Test
-    fun `amounts survive the round trip to the cent`() = runBlocking {
+    fun `amounts survive the round trip to the cent`() = runBlocking<Unit> {
         rules.upsert(PricingRule(0, KshAmount(2050), "Oddly priced bundle"))
 
         assertThat(rules.getAll().single().amount).isEqualTo(KshAmount(2050))
     }
 
     @Test
-    fun `duplicate amounts are storable and resolve to the newest`() = runBlocking {
+    fun `duplicate amounts are storable and resolve to the newest`() = runBlocking<Unit> {
         // No unique index, deliberately — see PricingRuleEntity. Both rows must
         // store, and the snapshot must then pick one deterministically.
         val cache = RuleCache()
@@ -180,7 +180,7 @@ class RoomCacheSyncTest {
     }
 
     @Test
-    fun `findActiveByAmount ignores paused rules`() = runBlocking {
+    fun `findActiveByAmount ignores paused rules`() = runBlocking<Unit> {
         rules.upsert(PricingRule(0, KshAmount.ofShillings(50), "Paused", isActive = false))
         rules.upsert(PricingRule(0, KshAmount.ofShillings(50), "Live", isActive = true))
 
@@ -192,7 +192,7 @@ class RoomCacheSyncTest {
     // --- The lookup is not a DB round trip ------------------------------------
 
     @Test
-    fun `matching still works after the database is closed`() = runBlocking {
+    fun `matching still works after the database is closed`() = runBlocking<Unit> {
         // The strongest available proof of BUILD-PLAN's "map access, not a DB
         // round trip" — and a deterministic one, with no timing or benchmark
         // involved. If classify() reached for Room, this would throw instead of
@@ -213,7 +213,7 @@ class RoomCacheSyncTest {
     // --- Templates -----------------------------------------------------------
 
     @Test
-    fun `a saved template reaches the cache and overrides the default`() = runBlocking {
+    fun `a saved template reaches the cache and overrides the default`() = runBlocking<Unit> {
         val cache = TemplateCache()
         startTemplateSync(cache)
 
@@ -228,7 +228,7 @@ class RoomCacheSyncTest {
     }
 
     @Test
-    fun `resetting a template returns it to the shipped default`() = runBlocking {
+    fun `resetting a template returns it to the shipped default`() = runBlocking<Unit> {
         val cache = TemplateCache()
         startTemplateSync(cache)
         templates.save(TemplateType.UNMATCHED, "Custom wording")
@@ -243,7 +243,7 @@ class RoomCacheSyncTest {
     }
 
     @Test
-    fun `saving a template twice replaces rather than duplicates`() = runBlocking {
+    fun `saving a template twice replaces rather than duplicates`() = runBlocking<Unit> {
         templates.save(TemplateType.MATCHED, "First")
         templates.save(TemplateType.MATCHED, "Second")
 
@@ -255,7 +255,7 @@ class RoomCacheSyncTest {
     }
 
     @Test
-    fun `the two flows are stored independently`() = runBlocking {
+    fun `the two flows are stored independently`() = runBlocking<Unit> {
         templates.save(TemplateType.MATCHED, "Matched wording")
         templates.save(TemplateType.UNMATCHED, "Unmatched wording")
 
