@@ -1,5 +1,13 @@
 package com.scopesms.autoreply.domain.permissions
 
+// File-level, not in the companion object below, and not by choice: an enum's
+// entries are constructed before its companion is initialised, so an entry
+// reading `SDK_TIRAMISU` from the companion fails to compile with "Companion
+// object of enum class 'AppPermission' is uninitialized here." The companion
+// re-exposes both as public constants for callers.
+private const val MIN_SDK_INTERNAL = 30
+private const val SDK_TIRAMISU_INTERNAL = 33
+
 /**
  * Every permission this app asks for, why it asks, and when.
  *
@@ -34,7 +42,7 @@ enum class AppPermission(
      */
     RECEIVE_SMS(
         id = "android.permission.RECEIVE_SMS",
-        minSdkInclusive = MIN_SDK,
+        minSdkInclusive = MIN_SDK_INTERNAL,
         rationale = "So Scope SMS can see M-Pesa payment messages as they arrive.",
     ),
 
@@ -44,7 +52,7 @@ enum class AppPermission(
      */
     READ_SMS(
         id = "android.permission.READ_SMS",
-        minSdkInclusive = MIN_SDK,
+        minSdkInclusive = MIN_SDK_INTERNAL,
         rationale = "So Scope SMS can read the payment details out of the message.",
     ),
 
@@ -56,7 +64,7 @@ enum class AppPermission(
      */
     READ_PHONE_STATE(
         id = "android.permission.READ_PHONE_STATE",
-        minSdkInclusive = MIN_SDK,
+        minSdkInclusive = MIN_SDK_INTERNAL,
         rationale = "So Scope SMS can tell your SIM cards apart and only watch the business one.",
     ),
 
@@ -74,7 +82,7 @@ enum class AppPermission(
      */
     READ_PHONE_NUMBERS(
         id = "android.permission.READ_PHONE_NUMBERS",
-        minSdkInclusive = MIN_SDK,
+        minSdkInclusive = MIN_SDK_INTERNAL,
         rationale = "So Scope SMS can show each SIM's phone number, making it easier to pick the right one.",
     ),
 
@@ -86,7 +94,7 @@ enum class AppPermission(
      */
     POST_NOTIFICATIONS(
         id = "android.permission.POST_NOTIFICATIONS",
-        minSdkInclusive = SDK_TIRAMISU,
+        minSdkInclusive = SDK_TIRAMISU_INTERNAL,
         rationale = "So Scope SMS can alert you if a reply fails to send.",
     ),
     ;
@@ -97,10 +105,10 @@ enum class AppPermission(
 
     companion object {
         /** CLAUDE.md constraint 1: Android 11. Mirrors `minSdk` in build.gradle.kts. */
-        const val MIN_SDK: Int = 30
+        const val MIN_SDK: Int = MIN_SDK_INTERNAL
 
         /** API 33, Android 13 — where POST_NOTIFICATIONS became a runtime grant. */
-        const val SDK_TIRAMISU: Int = 33
+        const val SDK_TIRAMISU: Int = SDK_TIRAMISU_INTERNAL
 
         /**
          * The runtime permissions to request on a device running [sdkInt],
