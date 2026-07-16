@@ -111,12 +111,15 @@ jobs:
       # The permanent keystore lives only as a base64 secret. Decoded to the
       # runner's temp dir (never the workspace, which artifact/commit steps sweep
       # up), and the runner is destroyed afterward.
+      # Accept either the ANDROID_* names (the documented scheme) or the legacy
+      # SIGNING_* names an earlier session added — so an existing keystore secret
+      # works without re-entry. ANDROID_* wins when both are present.
       - name: Materialise the signing keystore
         env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.SIGNING_KEYSTORE_BASE64 }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 is not set. Add the four ANDROID_* signing secrets — see README, 'Cutting a release'."
+            echo "::error::No keystore secret set. Add ANDROID_KEYSTORE_BASE64 (or legacy SIGNING_KEYSTORE_BASE64) — see README, 'Cutting a release'."
             exit 1
           fi
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/scope-sms-release.jks"
@@ -124,9 +127,11 @@ jobs:
 
       - name: Build signed release APK
         env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Fall back to the legacy SIGNING_* secret names (note the store
+          # password's legacy name is SIGNING_STORE_PASSWORD).
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.SIGNING_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.SIGNING_KEY_PASSWORD }}
         run: ./gradlew assembleRelease --stacktrace
 
       # Belt and braces: signingConfigs only registers a config when the keystore
