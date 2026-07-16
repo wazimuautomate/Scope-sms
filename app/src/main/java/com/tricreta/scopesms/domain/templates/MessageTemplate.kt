@@ -71,8 +71,15 @@ enum class TemplateVariable(val token: String) {
 
         fun byToken(token: String): TemplateVariable? = entries.firstOrNull { it.token == token }
 
-        /** Matches `{name}` and also `{nmae}` — recognising typos is the point. */
-        private val TOKEN_PATTERN = Regex("""\{[a-zA-Z_][a-zA-Z0-9_]*}""")
+        /**
+         * Matches `{name}` and also `{nmae}` — recognising typos is the point.
+         *
+         * The closing `}` MUST be escaped (`\}`). Android's ICU regex engine throws
+         * PatternSyntaxException on a lone unescaped `}` and force-closed the
+         * Messages screen at class-init on Samsung/Android 14; the desktop JVM
+         * tolerates it, so CI never saw it. Keep both braces escaped.
+         */
+        private val TOKEN_PATTERN = Regex("""\{[a-zA-Z_][a-zA-Z0-9_]*\}""")
     }
 }
 

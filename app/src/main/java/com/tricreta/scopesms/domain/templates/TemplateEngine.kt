@@ -137,7 +137,12 @@ object TemplateEngine {
         .replace(BLANK_LINE_RUN, "\n\n")
         .trim()
 
-    private val TOKEN_PATTERN = Regex("""\{[a-zA-Z_][a-zA-Z0-9_]*}""")
+    // The closing brace MUST be escaped as `\}`. Android's ICU-backed regex engine
+    // (Samsung/Android 14+) throws PatternSyntaxException on a lone unescaped `}`,
+    // which crashed the whole class' static init the instant the Messages screen
+    // touched it — while the desktop JVM (Robolectric/CI) tolerates it as a literal,
+    // so no unit test could catch it. Keep both braces escaped.
+    private val TOKEN_PATTERN = Regex("""\{[a-zA-Z_][a-zA-Z0-9_]*\}""")
     private val HORIZONTAL_RUN = Regex("""[ \t]{2,}""")
     private val SPACE_BEFORE_PUNCTUATION = Regex(""" +([,.!?;:])""")
     private val BLANK_LINE_RUN = Regex("""\n{3,}""")
