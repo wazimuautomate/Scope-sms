@@ -112,6 +112,11 @@ class ActivityLogRepository(
         return rowId != INSERT_IGNORED
     }
 
+    /** Deletes the given log rows. The agent's manual clean-up of the activity list. */
+    suspend fun delete(ids: Collection<Long>) {
+        if (ids.isNotEmpty()) dao.deleteByIds(ids.toList())
+    }
+
     /** Marks a queued reply as accepted by the gateway. */
     suspend fun markSent(transactionCode: String, gatewayMessageId: String?) {
         dao.updateSendResult(

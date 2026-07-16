@@ -119,6 +119,53 @@ class ScopeSmsGatewayTest {
         assertThat(sent.networkId).isEqualTo("1")
     }
 
+    // --- The LIVE gateway shape (the reported 5-retry bug) ------------------
+
+    @Test
+    fun `the live success shape (status success, statusCode 200) is Sent, not retried`() = runTest {
+        // The real endpoint's response, captured 2026-07. It carries NEITHER the
+        // documented response-code NOR messageid — success is status/statusCode and
+        // the id is transactionId (msgId is empty on the immediate response). This
+        // exact body was read as "unexpected" (retryable) and sent 5 times, then
+        // logged failed, while all 5 went out (confirmed on the SCOPE dashboard).
+        enqueueJson(
+            200,
+            """{"status":"success","mobile":"254727921038","invalidMobile":"","transactionId":"8466326473775335661","statusCode":"200","reason":"success","msgId":"","requestTime":"2026-07-17 00:20:09"}""",
+        )
+
+        val outcome = gateway.sendSms("0727921038", "Habari")
+
+        assertThat(outcome).isInstanceOf(SendOutcome.Sent::class.java)
+        val sent = outcome as SendOutcome.Sent
+        // No msgId yet → the id falls back to transactionId so the log can track it.
+        assertThat(sent.messageId).isEqualTo("8466326473775335661")
+        assertThat(sent.mobile).isEqualTo("254727921038")
+    }
+
+    @Test
+    fun `a live-shape response prefers msgId over transactionId when present`() = runTest {
+        enqueueJson(200, """{"status":"success","statusCode":"200","transactionId":"txn-1","msgId":"MSG-9"}""")
+
+        val outcome = gateway.sendSms("0727921038", "hi")
+
+        assertThat((outcome as SendOutcome.Sent).messageId).isEqualTo("MSG-9")
+    }
+
+    @Test
+    fun `a live-shape response that flags the number invalid is terminal InvalidPhone`() = runTest {
+        // Defensive: a send that is NOT success and names the rejected number in
+        // invalidMobile must be terminal, not retried.
+        enqueueJson(
+            200,
+            """{"status":"error","reason":"invalid mobile","invalidMobile":"254700000000","statusCode":"400"}""",
+        )
+
+        val reason = gateway.sendSms("0700000000", "hi").failureReason()
+
+        assertThat(reason).isInstanceOf(SendFailure.InvalidPhone::class.java)
+        assertThat(reason.retryable).isFalse()
+    }
+
     // --- Terminal failures --------------------------------------------------
 
     @Test

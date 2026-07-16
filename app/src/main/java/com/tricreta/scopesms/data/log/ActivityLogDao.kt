@@ -58,6 +58,16 @@ interface ActivityLogDao {
     @Query("SELECT EXISTS(SELECT 1 FROM activity_log WHERE transaction_code = :transactionCode)")
     suspend fun exists(transactionCode: String): Boolean
 
+    /**
+     * Deletes the given rows — the agent's manual clean-up of the log list.
+     *
+     * By `id`, not `transaction_code`: the log screen holds row ids and this is a
+     * housekeeping action, unrelated to the send-result path that keys on the
+     * transaction code. Room chunks a large `IN (:ids)` list itself.
+     */
+    @Query("DELETE FROM activity_log WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     // --- Log list -----------------------------------------------------------
 
     /** Newest first — the agent's last few minutes are what they came to see. */

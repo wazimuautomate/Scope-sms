@@ -106,6 +106,14 @@
     <!-- Activity log -->
     <string name="log_search">Search name, number or code</string>
     <string name="log_clear_filters">Clear filters</string>
+    <string name="log_selected">%1$d selected</string>
+    <string name="log_select_all">Select all</string>
+    <string name="log_copy">Copy</string>
+    <string name="log_delete">Delete</string>
+    <string name="log_copied">Copied %1$d log(s) to clipboard</string>
+    <string name="log_selection_close">Exit selection</string>
+    <string name="log_delete_title">Delete logs?</string>
+    <string name="log_delete_body">Delete %1$d selected log(s)? This can\'t be undone.</string>
     <string name="log_empty">No payments recorded yet.</string>
     <string name="log_empty_filtered">Nothing matches those filters.</string>
     <string name="log_amount">Ksh %1$s</string>

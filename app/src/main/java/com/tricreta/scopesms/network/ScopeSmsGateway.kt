@@ -87,41 +87,51 @@ class ScopeSmsGateway internal constructor(
                 return SendOutcome.Failed(SendFailure.Unexpected("empty body on HTTP 200"))
             }
 
-            val messageId = body.messageId
-            val gatewayMessage = body.message
+            // The trackable id. The live gateway returns it as transactionId
+            // (msgId is usually empty on the immediate response, filled once the
+            // message is dispatched); the documented format called it messageid.
+            // First non-blank, so the activity log has something to show.
+            val trackingId = listOfNotNull(body.msgId, body.transactionId, body.messageId)
+                .firstOrNull { it.isNotBlank() }
+            val gatewayText = body.reason ?: body.message
 
-            // A positive delivery signal is authoritative and is checked FIRST —
-            // this is the fix for the client's warning that *"the gateway may
-            // return an invalid-phone message even when the SMS was sent."*
+            // A positive delivery signal is authoritative and is checked FIRST.
             //
-            // A messageid, or a body response-code of 200, means it went out. The
-            // gateway's own message text on such a response often mentions the
-            // recipient number ("submitted to 2547…") — and the old order ran the
-            // text classifier before this check, so the word "number" tripped
-            // InvalidPhone and a delivered SMS was logged as failed. The agent
-            // then chases a customer who already got their reply. Delivery beats
-            // prose: if the gateway says it sent, we believe that, not its wording.
-            val delivered = !messageId.isNullOrBlank() || body.responseCode == SUCCESS_CODE
+            // The LIVE gateway signals success with {"status":"success",
+            // "statusCode":"200"} — NOT the documented response-code/messageid
+            // (verified against the real endpoint). Reading only the documented
+            // fields left every real send looking like an "unexpected response",
+            // which is retryable — so a delivered SMS was sent up to 5 times and
+            // then logged failed. The agent confirmed all 5 on the SCOPE
+            // dashboard. Believe any of these: a success word, a 200 (string or
+            // int), or a real id. Delivery beats prose.
+            val delivered =
+                body.status.equals("success", ignoreCase = true) ||
+                    body.statusCode == SUCCESS_CODE_TEXT ||
+                    body.responseCode == SUCCESS_CODE ||
+                    trackingId != null
             if (delivered) {
                 return SendOutcome.Sent(
-                    // Blank when the gateway confirmed via response-code but gave
-                    // no id. We can't track that one for delivery status, but it
-                    // must not be retried (a retry double-charges the agent and
-                    // double-texts the customer) and must not be called failed.
-                    messageId = messageId.orEmpty(),
+                    // Blank when the gateway confirmed via status/code but gave no
+                    // id yet. It must not be retried (a retry double-charges the
+                    // agent and double-texts the customer) and must not be failed.
+                    messageId = trackingId.orEmpty(),
                     mobile = body.mobile,
                     networkId = body.networkId,
                 )
             }
 
-            // No delivery signal — NOW the message text is a real error, and the
-            // documented error bodies (bad key, no balance) that arrive under a
-            // 200 are caught here rather than being mistaken for a send.
-            classifyErrorMessage(gatewayMessage)?.let { return SendOutcome.Failed(it) }
+            // Not delivered. A single send that names a rejected number in
+            // invalidMobile is a terminal InvalidPhone; otherwise the gateway's
+            // error text (documented bad-key / no-balance bodies) is a real error.
+            if (!body.invalidMobile.isNullOrBlank()) {
+                return SendOutcome.Failed(SendFailure.InvalidPhone(body.invalidMobile.orEmpty()))
+            }
+            classifyErrorMessage(gatewayText)?.let { return SendOutcome.Failed(it) }
 
             return SendOutcome.Failed(
                 SendFailure.Unexpected(
-                    "no messageid or success code" + (gatewayMessage?.let { ": $it" } ?: ""),
+                    "no success signal" + (gatewayText?.let { ": $it" } ?: ""),
                 ),
             )
         }
@@ -174,6 +184,9 @@ class ScopeSmsGateway internal constructor(
 
     companion object {
         private const val SUCCESS_CODE = 200
+
+        /** The live gateway sends its success code as the string `"200"`, not an int. */
+        private const val SUCCESS_CODE_TEXT = "200"
 
         const val BASE_URL = "https://sms.blazetechscope.com/v1/"
 

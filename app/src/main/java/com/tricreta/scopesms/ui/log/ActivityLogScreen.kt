@@ -1,5 +1,8 @@
 package com.tricreta.scopesms.ui.log
 
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,20 +16,30 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,8 +66,37 @@ fun ActivityLogScreen(
 ) {
     val records by viewModel.records.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
+    val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
+    val selectionMode = selectedIds.isNotEmpty()
+
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    var confirmDelete by remember { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize()) {
+        // Contextual bar, shown only while rows are selected: select all, copy the
+        // selected rows to the clipboard, or delete them.
+        if (selectionMode) {
+            SelectionBar(
+                count = selectedIds.size,
+                onSelectAll = viewModel::selectAll,
+                onCopy = {
+                    val text = viewModel.buildCopyText()
+                    if (text.isNotBlank()) {
+                        clipboard.setText(AnnotatedString(text))
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.log_copied, selectedIds.size),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                    viewModel.clearSelection()
+                },
+                onDelete = { confirmDelete = true },
+                onClose = viewModel::clearSelection,
+            )
+        }
+
         OutlinedTextField(
             value = filter.query,
             onValueChange = viewModel::setQuery,
@@ -124,22 +166,95 @@ fun ActivityLogScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(records, key = { it.id }) { record -> LogRow(record) }
+            items(records, key = { it.id }) { record ->
+                LogRow(
+                    record = record,
+                    selected = record.id in selectedIds,
+                    onClick = { if (selectionMode) viewModel.toggleSelection(record.id) },
+                    onLongClick = { viewModel.toggleSelection(record.id) },
+                )
+            }
+        }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.log_delete_title)) },
+            text = { Text(stringResource(R.string.log_delete_body, selectedIds.size)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteSelected()
+                    confirmDelete = false
+                }) {
+                    Text(stringResource(R.string.log_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+}
+
+/** The contextual action bar shown while log rows are selected. */
+@Composable
+private fun SelectionBar(
+    count: Int,
+    onSelectAll: () -> Unit,
+    onCopy: () -> Unit,
+    onDelete: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.log_selection_close))
+            }
+            Text(
+                text = stringResource(R.string.log_selected, count),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onSelectAll) { Text(stringResource(R.string.log_select_all)) }
+            TextButton(onClick = onCopy) { Text(stringResource(R.string.log_copy)) }
+            TextButton(onClick = onDelete) { Text(stringResource(R.string.log_delete)) }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LogRow(record: ActivityRecord) {
+private fun LogRow(
+    record: ActivityRecord,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = if (record.notifyStatus.isFailure) {
-            CardDefaults.cardColors(
+        // Long-press any row to start selecting; tap toggles once selection is on.
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        colors = when {
+            selected -> CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            record.notifyStatus.isFailure -> CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.errorContainer,
                 contentColor = MaterialTheme.colorScheme.onErrorContainer,
             )
-        } else {
-            CardDefaults.cardColors()
+            else -> CardDefaults.cardColors()
         },
     ) {
         Column(Modifier.padding(12.dp)) {
