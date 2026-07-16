@@ -31,19 +31,25 @@ gateways.
 | **0** | Repo, scaffolding & CI pipeline | ✅ Done |
 | 1 | Permissions & SIM identification | Not started |
 | 2 | SMS ingestion & M-Pesa parser | Not started |
-| 3 | Rules engine + in-memory cache | Not started |
-| 4 | Two message template types | Not started |
+| **3** | Rules engine + in-memory cache | ✅ Done |
+| **4** | Two message template types | ✅ Done |
 | 5 | SCOPE SMS gateway client | Not started |
 | 5b | Outbound queue & burst-speed architecture | Not started |
 | 6 | Independent notification toggles | Not started |
 | 7 | Compose UI | Not started |
 | 8 | Activity log & dashboard stats | Not started |
-| 9 | Reliability hardening | Not started |
+| 9 | Reliability hardening | 🟡 Code done & CI green — exit criteria need a real device |
 | 10 | Cross-version testing | Not started |
 | 11 | Release packaging & distribution | Not started |
 
 The app currently builds, installs, and shows a placeholder screen. It does
 not read or send anything yet.
+
+The decision engine underneath it is real, though: given a payment amount it
+matches the agent's price list and renders the right reply. What's missing is
+the SMS at either end — reading one in (Phase 2) and sending one out
+(Phases 5/5b) — plus the screens to enter prices and wording (Phase 7). Until
+then the price list can only be populated from a test.
 
 ---
 
@@ -75,6 +81,15 @@ allowed for the browser or file manager doing the install.
 
 Full end-user install instructions are written in Phase 11.
 
+**Installing is not sufficient on the phones this app targets.** Tecno, Infinix,
+itel and Xiaomi builds keep their own "autostart" / "protected apps" whitelist on
+top of Android's battery-optimisation exemption, and an app missing from it is
+killed in the background — payments arrive with no reply, silently, usually once
+the screen has been off a while. No code can read or set that list; only the
+agent can. The app therefore ships per-phone instructions in-app (Phase 9), and
+Phase 11's install guide must send the agent through them rather than stopping at
+"the APK is installed".
+
 ### Toolchain
 
 Pinned in `gradle/libs.versions.toml`; CI provisions everything. JDK 17,
@@ -95,6 +110,7 @@ app/src/main/java/com/scopesms/autoreply/
 ├── telephony/   SMS receiver + SIM identification — ingestion only
 ├── network/     SCOPE SMS gateway client
 ├── queue/       Outbound send queue + WorkManager worker
+├── reliability/ Boot health check + OEM autostart guidance
 ├── ui/          Compose screens + theme
 └── di/          Dependency injection
 ```

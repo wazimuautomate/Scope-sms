@@ -1,6 +1,11 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+
+    // Room's compiler runs through KSP — needed by rules (3), templates (4),
+    // the outbound queue (5b) and the activity log (8) alike. Never kapt: kapt
+    // is incompatible with AGP 9's built-in Kotlin (see memory.md).
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -44,10 +49,43 @@ android {
         // device. See memory.md.
         targetSdk = 36
 
-        versionCode = 1
-        versionName = "0.1.0-phase0"
+        // Phase 11. Semantic version + build number, surfaced in Settings and
+        // compared against the GitHub Releases API by the in-app update check.
+        //
+        // Bump BOTH for a release, and tag the commit `v<versionName>` — the
+        // release workflow verifies the tag matches this, because a Release
+        // labelled v1.1.0 containing an APK that reports 1.0.0 would make the
+        // update prompt reappear forever.
+        versionCode = 2
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Release signing, from a keystore CI materialises out of GitHub Secrets
+    // (SIGNING_KEYSTORE_BASE64 / SIGNING_STORE_PASSWORD / SIGNING_KEY_ALIAS /
+    // SIGNING_KEY_PASSWORD).
+    //
+    // Configured only when the env vars are present, so an ordinary
+    // `assembleRelease` on a machine without the secrets produces an *unsigned*
+    // APK rather than one silently signed with the debug key. A debug-signed
+    // "release" would install fine and then refuse every future real update with
+    // a signature mismatch — on the agent's phone, holding their live data.
+    val keystorePath = System.getenv("SIGNING_KEYSTORE_PATH")
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+
+                // v1 too: minSdk is 30 so v2/v3 always apply, but some OEM
+                // installers on this app's target handsets still look for v1.
+                enableV1Signing = true
+                enableV2Signing = true
+            }
+        }
     }
 
     buildTypes {
@@ -56,10 +94,11 @@ android {
             isMinifyEnabled = false
         }
         release {
-            // Signing is Phase 11's job: a keystore held as a base64 GitHub
-            // Secret, applied by a tag-triggered workflow. Deliberately not
-            // configured here — an unsigned release build failing loudly is
-            // better than one silently signed with debug keys.
+            // Phase 11: signed by the tag-triggered workflow. Null when the
+            // secrets aren't present — see signingConfigs above for why that is
+            // deliberately an unsigned APK rather than a debug-signed one.
+            signingConfig = signingConfigs.findByName("release")
+
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -70,8 +109,21 @@ android {
     }
 
     compileOptions {
+        // Stays at 17 even though CI now provisions JDK 21 for Robolectric
+        // (see .github/workflows/build.yml). 17 is AGP's minimum, not its
+        // maximum — a 21 toolchain emits 17 bytecode fine, and the app's own
+        // compatibility floor is unchanged.
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        unitTests {
+            // Robolectric needs the merged resources/manifest to boot an Android
+            // runtime in a JVM test. Without this, Phase 8's DAO tests fail at
+            // startup rather than on an assertion.
+            isIncludeAndroidResources = true
+        }
     }
 
     buildFeatures {
@@ -80,6 +132,21 @@ android {
         // ArchitectureGuardTest. Off by default since AGP 8.
         buildConfig = true
     }
+
+}
+
+// Room's schema export. data/README.md is explicit that a shipped build must
+// never use fallbackToDestructiveMigration() — once the agent is live, a
+// destructive migration throws away their bundle rules and activity history.
+// Real migrations need the schema JSON committed, so export it from the start.
+//
+// Deliberately no `unitTests { isReturnDefaultValues = true }` above: the
+// engines are pure Kotlin behind ports precisely so they test on the JVM.
+// Returning defaults would let a stray android.* call quietly return null
+// instead of failing with "not mocked", hiding the day that property breaks.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.generateKotlin", "true")
 }
 
 // No `kotlin { compilerOptions { } }` block: under AGP 9's built-in Kotlin,
@@ -100,8 +167,64 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.core)
+
+    // Phase 1 — SIM selection and onboarding state. First real use of this
+    // catalog pin (memory.md flags every "later phases" entry as researched but
+    // never resolved by a build), so this push is what confirms it exists.
+    implementation(libs.androidx.datastore.preferences)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 
+    // --- Phase 5 — SCOPE SMS gateway client -------------------------------
+    // Retrofit over Ktor: the catalog already researched and pinned it, the
+    // gateway is three plain JSON POSTs (no streaming, no websockets), and
+    // OkHttp is the better-understood client on the low-end Android 11 devices
+    // this ships to. Choice recorded in memory.md.
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.moshi)
+    implementation(libs.okhttp)
+    implementation(libs.moshi.kotlin)
+
+    // --- Room — the single AppDatabase -------------------------------------
+    // Source of truth for pricing rules (3), message templates (4), the
+    // outbound send queue (5b) and the activity log (8). All four entities live
+    // in one database; see data/AppDatabase.kt before adding another.
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
+    // Declared rather than inherited transitively through lifecycle: domain/
+    // and di/ use Flow and CoroutineScope directly, and a transitive version
+    // bump shouldn't be able to silently move them.
+    implementation(libs.kotlinx.coroutines.core)
+
+    // --- Phase 5b — outbound queue ----------------------------------------
+    implementation(libs.androidx.work.runtime.ktx)
+
+    // --- Test -------------------------------------------------------------
     testImplementation(libs.junit)
+    testImplementation(libs.truth)
+    testImplementation(libs.kotlinx.coroutines.test)
+
+    // Coordinate renamed in OkHttp 5.x — mockwebserver3-junit4, not the old
+    // com.squareup.okhttp3:mockwebserver (see memory.md).
+    testImplementation(libs.mockwebserver3.junit4)
+
+    // Room-backed tests (cache sync, log/stats) run real SQL against a real
+    // in-memory SQLite rather than trusting it: a wrong column name or a bad
+    // boolean-sum idiom compiles fine and returns confidently wrong numbers on
+    // the agent's dashboard. That needs Robolectric, and Robolectric against
+    // SDK 36+ needs JDK 21 — build.yml is bumped to 21. See memory.md.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.room.testing)
+
+    // --- Phase 10 — instrumented smoke tests -------------------------------
+    // Deliberately minimal. The JVM suite is the primary safety net; these cover
+    // only what a JVM cannot answer — chiefly the Android Keystore, which has no
+    // JVM equivalent and is where the OEM failures live. See SmokeTest.
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.kotlinx.coroutines.core)
 }

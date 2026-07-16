@@ -5,4 +5,8 @@
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.compose) apply false
+
+    // Room's annotation processor. KSP, never kapt — kapt is incompatible with
+    // AGP 9's built-in Kotlin. Added in Phase 3, the first phase to use Room.
+    alias(libs.plugins.ksp) apply false
 }

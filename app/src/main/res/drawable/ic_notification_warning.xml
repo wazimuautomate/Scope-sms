@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Small icon for the app-health notification (Phase 9).
+
+  Deliberately not the launcher icon. Android renders notification small icons
+  as a silhouette: it keeps the alpha channel and throws every colour away. A
+  full-colour mipmap passed here comes out as an unreadable white blob on the
+  status bar, which is the single most common way this goes wrong.
+
+  So: one flat path, no colour, alpha carrying the whole shape. It is a warning
+  triangle rather than an envelope because this notification never means "you
+  have a message" — it only ever fires when the app has stopped working.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M1,21h22L12,2 1,21zM13,18h-2v-2h2v2zM13,14h-2v-4h2v4z" />
+</vector>

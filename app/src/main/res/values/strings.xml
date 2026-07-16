@@ -1,4 +1,160 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copy is written for one reader: a Bingwa Sokoni agent running their business
+  off this phone. Two rules throughout:
+
+  1. Say what happened and what to do about it. "Send failed" is banned by
+     network/README.md for the same reason "Error 3" would be.
+  2. No jargon the agent didn't choose. They know "bundle", "sender ID" and
+     "M-Pesa"; they do not know "unmatched flow", "enqueue" or "gateway 429".
+-->
 <resources>
     <string name="app_name">Scope SMS</string>
+
+    <!-- Shared -->
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="dismiss">Dismiss</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_rules">Prices</string>
+    <string name="nav_templates">Messages</string>
+    <string name="nav_log">Activity</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Home -->
+    <string name="home_today">Today</string>
+    <string name="home_replies">Automatic replies</string>
+    <string name="home_status_on">Watching for payments</string>
+    <string name="home_status_on_detail">M-Pesa payments will be answered automatically.</string>
+    <string name="home_status_off">Not replying to anyone</string>
+    <string name="home_status_off_detail">Something below needs your attention first.</string>
+
+    <string name="stat_processed">Payments seen</string>
+    <string name="stat_matched">Purchases confirmed</string>
+    <string name="stat_unmatched">Price lists sent</string>
+    <string name="stat_failed">Failed to send</string>
+
+    <string name="warn_fix">Fix this</string>
+    <string name="warn_permissions_title">Scope SMS cannot read your messages</string>
+    <string name="warn_permissions_body">Permission was turned off, so no payments are being seen at all.</string>
+    <string name="warn_no_rules_title">No bundle prices yet</string>
+    <string name="warn_no_rules_body">Add your prices before Scope SMS can reply to anyone.</string>
+    <string name="warn_no_gateway_title">SMS gateway is not set up</string>
+    <string name="warn_no_gateway_body">Add your API key and sender ID, or replies cannot be sent.</string>
+    <string name="warn_toggles_off_title">Both replies are switched off</string>
+    <string name="warn_toggles_off_body">Payments are still recorded, but no customer is being texted.</string>
+    <string name="warn_battery_title">Your phone may close Scope SMS</string>
+    <string name="warn_battery_body">Allow it to run in the background so payments are not missed.</string>
+
+    <!-- Toggles -->
+    <string name="toggle_unmatched_title">Reply with the price list</string>
+    <string name="toggle_unmatched_subtitle">When a customer pays an amount that is not one of your bundle prices.</string>
+    <string name="toggle_matched_title">Confirm purchases</string>
+    <string name="toggle_matched_subtitle">When a customer pays exactly one of your bundle prices. Higher volume — keep off on busy days.</string>
+
+    <!-- Rules -->
+    <string name="rules_add">Add price</string>
+    <string name="rules_new">New bundle price</string>
+    <string name="rules_edit">Edit</string>
+    <string name="rules_delete">Delete</string>
+    <string name="rules_paused">Paused — not quoted to customers</string>
+    <string name="rules_price">Ksh %1$s</string>
+    <string name="rules_empty_title">No prices yet</string>
+    <string name="rules_empty_body">Add each bundle you sell and what it costs. Scope SMS stays quiet until you do.</string>
+    <string name="rules_amount_label">Price (Ksh)</string>
+    <string name="rules_amount_help">Whole shillings only, e.g. 50</string>
+    <string name="rules_description_label">What it buys</string>
+    <string name="rules_description_help">e.g. 2GB Weekly</string>
+    <string name="rules_duplicate_badge">Another bundle has this price</string>
+    <string name="rules_duplicate_warning">%1$d price(s) are used by more than one bundle. Only the newest is quoted to customers.</string>
+
+    <string name="rules_err_amount">Enter the price as a number, e.g. 50.</string>
+    <string name="rules_err_whole">Use whole shillings only — 50, not 50.50.</string>
+    <string name="rules_err_zero">A price of 0 cannot buy a bundle.</string>
+    <string name="rules_err_description">Say what this bundle buys — it goes into the message.</string>
+    <string name="rules_err_duplicate">Another active bundle already costs this much.</string>
+
+    <!-- Templates -->
+    <string name="tpl_tab_unmatched">Price list reply</string>
+    <string name="tpl_tab_matched">Purchase confirmation</string>
+    <string name="tpl_unmatched_explainer">Sent when a customer pays an amount that matches none of your bundles.</string>
+    <string name="tpl_matched_explainer">Sent when a customer pays exactly one of your bundle prices.</string>
+    <string name="tpl_body_label">Message</string>
+    <string name="tpl_reset">Reset to default</string>
+    <string name="tpl_preview">Preview</string>
+    <string name="tpl_preview_note">Uses your real price list, so this is exactly what a customer would receive.</string>
+    <string name="tpl_segments">%1$d characters · %2$d SMS · %3$s</string>
+    <string name="tpl_err_unknown">Not a real variable: %1$s. Check the spelling — it will be sent to the customer exactly as typed.</string>
+    <string name="tpl_err_disallowed">%1$s has no value in this message and will be left blank.</string>
+
+    <!-- Activity log -->
+    <string name="log_search">Search name, number or code</string>
+    <string name="log_clear_filters">Clear filters</string>
+    <string name="log_empty">No payments recorded yet.</string>
+    <string name="log_empty_filtered">Nothing matches those filters.</string>
+    <string name="log_amount">Ksh %1$s</string>
+    <string name="log_unknown_sender">Name not in the message</string>
+
+    <string name="match_matched">Matched a bundle</string>
+    <string name="match_unmatched">No bundle at that price</string>
+    <string name="match_no_rules">No prices set up</string>
+
+    <string name="notify_queued">Sending…</string>
+    <string name="notify_sent">Sent</string>
+    <string name="notify_silent">No reply sent</string>
+    <string name="notify_failed">Failed</string>
+
+    <!-- Settings -->
+    <string name="settings_sim">Which SIM</string>
+    <string name="settings_sim_help">Scope SMS only reads M-Pesa messages that arrive on the SIM you choose. Your personal SIM is left alone.</string>
+    <string name="settings_sim_all">Both SIMs</string>
+    <string name="settings_sim_none">No SIM cards detected.</string>
+
+    <string name="settings_gateway">SMS gateway</string>
+    <string name="settings_gateway_help">Replies are sent through your SCOPE SMS account, not from this phone\'s SIM. Your API key is stored encrypted on this device only.</string>
+    <string name="settings_gateway_saved">Saved: key %1$s · sender ID %2$s</string>
+    <string name="settings_gateway_clear">Remove</string>
+    <string name="settings_gateway_save_failed">This phone could not store the key securely. Try again, and if it keeps failing, tell your developer.</string>
+    <string name="settings_api_key">API key</string>
+    <string name="settings_sender_id">Sender ID</string>
+    <string name="settings_sender_id_help">Must already be registered with SCOPE, or messages will be rejected.</string>
+    <string name="settings_test_title">Send a test message</string>
+    <string name="settings_test_phone">Your own number, e.g. 0712345678</string>
+    <string name="settings_test_send">Send test</string>
+    <string name="settings_test_ok">Sent. If it arrives, your gateway is set up correctly.</string>
+
+    <string name="settings_reliability">Staying awake</string>
+    <string name="settings_battery_ok">Scope SMS is allowed to run in the background.</string>
+    <string name="settings_battery_bad">Your phone can close Scope SMS in the background. Payments would be missed.</string>
+    <string name="settings_battery_fix">Allow background activity</string>
+
+    <string name="settings_about">About</string>
+    <string name="settings_version">Version %1$s (build %2$d)</string>
+    <string name="settings_update_check">Check for updates</string>
+    <string name="settings_update_available">Version %1$s is available</string>
+    <string name="settings_update_open">Open download page</string>
+    <string name="settings_update_current">You have the latest version.</string>
+    <string name="settings_update_unknown">Could not check right now. Try again when you have internet.</string>
+
+    <!-- Onboarding -->
+    <string name="onb_step">Step %1$d of %2$d</string>
+    <string name="onb_next">Continue</string>
+    <string name="onb_finish">Finish setup</string>
+    <string name="onb_skip">Skip for now</string>
+
+    <string name="onb_perm_title">Let Scope SMS read your M-Pesa messages</string>
+    <string name="onb_perm_body">It reads incoming messages on this phone to spot till payments. Nothing is uploaded anywhere — reading happens on the phone itself.</string>
+    <string name="onb_perm_grant">Grant permissions</string>
+    <string name="onb_perm_granted">Permissions granted</string>
+
+    <string name="onb_sim_title">Which SIM receives your payments?</string>
+    <string name="onb_sim_body">Choose the SIM your till confirmations arrive on. Messages on your other SIM are ignored completely.</string>
+
+    <string name="onb_gateway_title">Connect your SCOPE SMS account</string>
+    <string name="onb_gateway_body">Replies are sent through the SCOPE gateway using your registered sender ID, so they come from your business name. This needs internet — a payment that arrives offline is queued and sent when you are back online.</string>
+
+    <string name="onb_battery_title">Keep Scope SMS running</string>
+    <string name="onb_battery_body">Phones close apps in the background to save battery. If that happens to Scope SMS, payments are missed while your screen is off.</string>
 </resources>

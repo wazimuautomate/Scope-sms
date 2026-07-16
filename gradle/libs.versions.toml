@@ -79,15 +79,37 @@ retrofit = "3.0.0"
 okhttp = "5.4.0"
 moshi = "1.15.2"
 
+# Coroutines. Used by domain/ (the cache's Flow sync) and by tests. The -core
+# and -test artifacts must share a version, hence one key for both.
+#
+# Phase 0 listed this as `coroutinesTest`; Phase 3 renamed the *version key*
+# when it added -core. Library aliases (`kotlinx-coroutines-test`) are
+# unchanged, so nothing referencing them breaks.
+coroutines = "1.11.0"
 # Phase 2+ — testing.
-coroutinesTest = "1.11.0"
-# Robolectric needs JDK 21 to run against SDK 36. CI currently provisions
-# JDK 17, so the phase that adds Robolectric must bump the workflow. Prefer
-# JVM-pure tests over Robolectric wherever the code allows it.
+
+# Robolectric — in use since Phase 3, for the Room-backed cache-sync tests.
+#
+# Phase 0 flagged that Robolectric needs JDK 21 to run against SDK 36+, while
+# CI provisions JDK 17. That is still true, and it is sidestepped rather than
+# solved: every Robolectric test here is pinned `@Config(sdk = [30])`. The
+# API 30 android-all jar is Java 11-compiled, so JDK 17 runs it fine, and 30 is
+# minSdk — CLAUDE.md constraint 1 asks for verification on the floor, not the
+# ceiling, so the floor is the more useful place to test anyway.
+#
+# If a future phase needs Robolectric at SDK 36+, that is when the workflow's
+# setup-java bumps to 21 (leaving jvmTarget/compileOptions at 17 — 17 is AGP's
+# minimum, not its maximum). Prefer JVM-pure tests over Robolectric regardless:
+# domain/ is pure Kotlin by design and needs none of this.
 robolectric = "4.16.1"
 # Coordinate renamed in OkHttp 5.x: mockwebserver3-junit4.
 mockwebserver = "5.4.0"
 truth = "1.4.5"
+
+# Phase 10 — instrumented smoke tests on the emulator matrix. Only androidTest
+# uses these; they add nothing to the APK.
+androidxTestRunner = "1.7.0"
+androidxTestExtJunit = "1.3.0"
 
 # NOTE — androidx.security:security-crypto is deliberately ABSENT.
 # 1.1.0 is "stable" but every API in it is deprecated, and it has known
@@ -111,6 +133,14 @@ androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 
+# Phase 7 — the Icons.Default.* set used by the bottom bar and status cards.
+# Material3 does NOT bring this transitively (a real surprise found by the first
+# local compile: every `Icons.Default.Home` was an unresolved reference).
+# Deliberately -core, not -extended: extended is ~10MB of vectors for a handful
+# of icons, and every one this app uses (Home, Edit, Settings, ShoppingCart,
+# List, CheckCircle, Info, Warning, Add, Delete, Search) is in core.
+androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
+
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 # --- Later phases (see caveat above) ---------------------------------------
@@ -130,10 +160,14 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
 moshi-kotlin = { group = "com.squareup.moshi", name = "moshi-kotlin", version.ref = "moshi" }
 
-kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 mockwebserver3-junit4 = { group = "com.squareup.okhttp3", name = "mockwebserver3-junit4", version.ref = "mockwebserver" }
 truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
+
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
 
 [plugins]
 
