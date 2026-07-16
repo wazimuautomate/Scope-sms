@@ -49,8 +49,21 @@ class OutboundQueue(
         val failed: Int = 0,
         /** Jobs left PENDING for a later attempt — the signal to reschedule. */
         val retryable: Int = 0,
+        /**
+         * The pending list was full, so there is very likely more behind it.
+         *
+         * [drain] reads one bounded page. Without this the worker would see a
+         * clean summary, return success, and nothing would reschedule — so a
+         * backlog larger than a page (an agent out of coverage for a few hours)
+         * would strand its tail until the process next started, possibly the next
+         * morning, with those customers still waiting on their prices.
+         */
+        val morePending: Boolean = false,
     ) {
         val processed: Int get() = sent + failed + retryable
+
+        /** True when the worker should ask to run again. */
+        val shouldReschedule: Boolean get() = retryable > 0 || morePending
     }
 
     /**
@@ -97,17 +110,31 @@ class OutboundQueue(
         // reading the pending list — otherwise those jobs are invisible here.
         store.releaseStuckJobs()
 
+        val page = store.pendingJobs(limit = PAGE_SIZE)
+
         var summary = DrainSummary()
-        for (job in store.pendingJobs()) {
+        for (job in page) {
             summary = summary + sendOne(job)
         }
-        return summary
+
+        // A full page means there is probably more. Deliberately not a loop here:
+        // jobs that come back retryable stay PENDING, so re-querying inside one
+        // drain would keep handing us the same rows and spin. Reporting it lets
+        // the worker come back through WorkManager's backoff, which also
+        // re-checks connectivity and re-honours the rate limit.
+        return summary.copy(morePending = page.size == PAGE_SIZE)
     }
 
     private suspend fun sendOne(job: OutboundJob): DrainSummary {
         store.markSending(job.id)
 
-        val outcome = gateway.sendSms(phone = job.phone, message = job.message)
+        // job.senderId, not the current setting: the job must go out under the ID
+        // it was created with. See OutboundJob.senderId and ScopeSmsGateway.sendSms.
+        val outcome = gateway.sendSms(
+            phone = job.phone,
+            message = job.message,
+            senderId = job.senderId,
+        )
 
         return when (outcome) {
             is SendOutcome.Sent -> {
@@ -160,6 +187,7 @@ class OutboundQueue(
         sent = sent + other.sent,
         failed = failed + other.failed,
         retryable = retryable + other.retryable,
+        morePending = morePending || other.morePending,
     )
 
     companion object {
@@ -171,6 +199,13 @@ class OutboundQueue(
          * a message failed while the customer is still in front of them.
          */
         const val DEFAULT_MAX_ATTEMPTS = 5
+
+        /**
+         * How many jobs one drain claims. Bounded so a huge backlog can't hold
+         * the worker past WorkManager's execution window; the leftovers are
+         * reported through [DrainSummary.morePending] rather than forgotten.
+         */
+        const val PAGE_SIZE = 100
     }
 }
 

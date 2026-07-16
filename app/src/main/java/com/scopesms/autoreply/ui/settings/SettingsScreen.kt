@@ -299,19 +299,41 @@ private fun GatewaySection(state: SettingsUiState, viewModel: SettingsViewModel)
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val canSend = state.canTestSend && testPhone.isNotBlank()
+    Button(
+        onClick = { viewModel.sendTest(testPhone, SettingsViewModel.TestKind.PLAIN) },
+        enabled = canSend,
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Button(
-            onClick = { viewModel.sendTest(testPhone) },
-            enabled = state.canTestSend && testPhone.isNotBlank(),
+        Text(stringResource(R.string.settings_test_send))
+    }
+
+    // The client asked to also send a real sample of each reply type, so the
+    // agent can see on their own phone exactly what a customer receives —
+    // rendered from the live templates and price list, not a mock.
+    Text(
+        text = stringResource(R.string.settings_test_samples),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(
+            onClick = { viewModel.sendTest(testPhone, SettingsViewModel.TestKind.MATCHED) },
+            enabled = canSend,
+            modifier = Modifier.weight(1f),
         ) {
-            Text(stringResource(R.string.settings_test_send))
+            Text(stringResource(R.string.settings_test_matched))
         }
-        if (state.testSend is TestSendState.Sending) {
-            CircularProgressIndicator(modifier = Modifier.padding(4.dp))
+        OutlinedButton(
+            onClick = { viewModel.sendTest(testPhone, SettingsViewModel.TestKind.UNMATCHED) },
+            enabled = canSend,
+            modifier = Modifier.weight(1f),
+        ) {
+            Text(stringResource(R.string.settings_test_unmatched))
         }
+    }
+    if (state.testSend is TestSendState.Sending) {
+        CircularProgressIndicator(modifier = Modifier.padding(4.dp))
     }
 
     TestResult(state.testSend, onDismiss = viewModel::dismissTestResult)

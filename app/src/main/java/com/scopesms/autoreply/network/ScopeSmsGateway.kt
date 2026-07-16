@@ -30,8 +30,26 @@ class ScopeSmsGateway internal constructor(
      *
      * @param phone recipient in any Kenyan format; normalised before sending.
      * @param message the rendered template body (Phase 4).
+     * @param senderId the ID to send under, or null to use whatever is currently
+     *   stored.
+     *
+     *   The queue passes the ID captured when the job was created
+     *   ([com.scopesms.autoreply.queue.OutboundJob.senderId]), and that is the
+     *   whole reason this parameter exists. Re-reading it here would mean a reply
+     *   queued while the agent was offline goes out under an ID they changed in
+     *   the meantime — and if the new one isn't registered with SCOPE yet, every
+     *   queued reply fails terminally on `UnregisteredSenderId` when they would
+     *   have sent fine under the original.
+     *
+     *   The **API key is deliberately still read live**: it identifies the
+     *   account, and a key the agent has replaced is simply invalid — there is
+     *   nothing to be gained by sending with a stale one.
      */
-    suspend fun sendSms(phone: String, message: String): SendOutcome {
+    suspend fun sendSms(
+        phone: String,
+        message: String,
+        senderId: String? = null,
+    ): SendOutcome {
         val credentials = credentialsProvider.credentials()
             ?: return SendOutcome.Failed(SendFailure.InvalidApiKey)
 
@@ -41,7 +59,7 @@ class ScopeSmsGateway internal constructor(
         val request = SendSmsRequest(
             message = message,
             phone = localPhone,
-            senderId = credentials.senderId,
+            senderId = senderId ?: credentials.senderId,
             apiKey = credentials.apiKey,
         )
 
@@ -65,40 +83,47 @@ class ScopeSmsGateway internal constructor(
         val body = response.body()
 
         if (response.isSuccessful) {
-            // A 200 does not by itself mean "sent" — the gateway carries its own
-            // response-code in the body, and the documented error bodies (bad
-            // key, no balance) can arrive under a 200. Trusting the HTTP status
-            // alone would mark those jobs SENT and lose the message silently.
-            val gatewayMessage = body?.message
-            body?.let { classifyErrorMessage(gatewayMessage) }?.let {
-                return SendOutcome.Failed(it)
+            if (body == null) {
+                return SendOutcome.Failed(SendFailure.Unexpected("empty body on HTTP 200"))
             }
 
-            val messageId = body?.messageId
-            return when {
-                body == null ->
-                    SendOutcome.Failed(SendFailure.Unexpected("empty body on HTTP 200"))
+            val messageId = body.messageId
+            val gatewayMessage = body.message
 
-                body.responseCode != null && body.responseCode != SUCCESS_CODE ->
-                    SendOutcome.Failed(
-                        SendFailure.Unexpected(
-                            "response-code ${body.responseCode}" +
-                                (gatewayMessage?.let { ": $it" } ?: ""),
-                        ),
-                    )
-
-                // Success without an id: we cannot record what was sent, and we
-                // must not retry (it may well have gone out and a retry would
-                // charge the agent twice for a second copy to the customer).
-                messageId.isNullOrBlank() ->
-                    SendOutcome.Failed(SendFailure.Unexpected("success with no messageid"))
-
-                else -> SendOutcome.Sent(
-                    messageId = messageId,
+            // A positive delivery signal is authoritative and is checked FIRST —
+            // this is the fix for the client's warning that *"the gateway may
+            // return an invalid-phone message even when the SMS was sent."*
+            //
+            // A messageid, or a body response-code of 200, means it went out. The
+            // gateway's own message text on such a response often mentions the
+            // recipient number ("submitted to 2547…") — and the old order ran the
+            // text classifier before this check, so the word "number" tripped
+            // InvalidPhone and a delivered SMS was logged as failed. The agent
+            // then chases a customer who already got their reply. Delivery beats
+            // prose: if the gateway says it sent, we believe that, not its wording.
+            val delivered = !messageId.isNullOrBlank() || body.responseCode == SUCCESS_CODE
+            if (delivered) {
+                return SendOutcome.Sent(
+                    // Blank when the gateway confirmed via response-code but gave
+                    // no id. We can't track that one for delivery status, but it
+                    // must not be retried (a retry double-charges the agent and
+                    // double-texts the customer) and must not be called failed.
+                    messageId = messageId.orEmpty(),
                     mobile = body.mobile,
                     networkId = body.networkId,
                 )
             }
+
+            // No delivery signal — NOW the message text is a real error, and the
+            // documented error bodies (bad key, no balance) that arrive under a
+            // 200 are caught here rather than being mistaken for a send.
+            classifyErrorMessage(gatewayMessage)?.let { return SendOutcome.Failed(it) }
+
+            return SendOutcome.Failed(
+                SendFailure.Unexpected(
+                    "no messageid or success code" + (gatewayMessage?.let { ": $it" } ?: ""),
+                ),
+            )
         }
 
         // Non-2xx. Prefer the gateway's own error text where it gives one — it

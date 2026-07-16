@@ -24,6 +24,7 @@ import com.scopesms.autoreply.queue.SendResultListener
 import com.scopesms.autoreply.reliability.OemSettingsLauncher
 import com.scopesms.autoreply.reliability.ReliabilityInspector
 import com.scopesms.autoreply.reliability.ReliabilityNotifier
+import com.scopesms.autoreply.reliability.WatchingNotification
 import com.scopesms.autoreply.telephony.AndroidSimReader
 import com.scopesms.autoreply.telephony.PaymentPipeline
 import com.scopesms.autoreply.telephony.SimReader
@@ -206,6 +207,10 @@ class AppContainer(context: Context) {
             keepInSync("templates", messageTemplateRepository.observeAll(), templateCache::publish)
         }
 
+        // Reassure the agent the app is on watch. Cheap and idempotent; re-posted
+        // on every start and boot. Not a foreground service — see the class.
+        watchingNotification.show()
+
         // Anything a previous process left PENDING — queued while the phone had
         // no data, or stranded when the process died mid-drain — goes out now.
         // WorkManager's CONNECTED constraint holds it until there's a network,
@@ -270,6 +275,9 @@ class AppContainer(context: Context) {
      * would put a package lookup on every headless process start.
      */
     val oemSettingsLauncher: OemSettingsLauncher by lazy { OemSettingsLauncher(appContext) }
+
+    /** The quiet ongoing "watching" notification the agent asked to see. */
+    val watchingNotification: WatchingNotification by lazy { WatchingNotification(appContext) }
 
     companion object {
         private const val TAG = "ScopeSms/Container"

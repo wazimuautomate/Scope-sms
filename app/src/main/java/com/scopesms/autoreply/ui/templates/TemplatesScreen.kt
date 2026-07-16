@@ -73,8 +73,19 @@ fun TemplatesScreen(
         }
 
         Column(
+            // weight(1f), NOT fillMaxSize(). This Column sits below the TabRow
+            // inside the outer Column, so it is a *nested* child — and a Column
+            // measures a non-weighted child with an infinite max height. A
+            // verticalScroll given infinite height throws
+            // "Vertically scrollable component was measured with an infinity
+            // maximum height", which force-closes the screen on open. weight(1f)
+            // makes the outer Column hand it a finite height (what's left under
+            // the tabs), which is also the UX we want: pinned tabs, scrolling
+            // body. The other scrolling screens escape this only because their
+            // scroll is the Scaffold body directly, which is already bounded.
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

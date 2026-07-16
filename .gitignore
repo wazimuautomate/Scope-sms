@@ -74,3 +74,6 @@ app-icons/
 
 # Emulator/AV debug noise, not ours.
 firebase-debug.log
+
+# Kotlin incremental compile cache (local builds)
+.kotlin/

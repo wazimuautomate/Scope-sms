@@ -56,6 +56,14 @@
 
     <!-- Rules -->
     <string name="rules_add">Add price</string>
+    <string name="rules_share">Share prices</string>
+    <string name="rules_import">Import prices</string>
+    <string name="rules_export_filename">scope-sms-prices.json</string>
+    <string name="rules_export_ok">Prices saved. Open the file on another phone and use Import.</string>
+    <string name="rules_export_failed">Could not save the file. Try a different location.</string>
+    <string name="rules_import_ok">Added %1$d price(s). Skipped %2$d already on this phone.</string>
+    <string name="rules_import_none">No new prices — all %1$d were already on this phone.</string>
+    <string name="rules_import_unreadable">That file is not a Scope SMS price list, or it is from a newer version. Update the app and try again.</string>
     <string name="rules_new">New bundle price</string>
     <string name="rules_edit">Edit</string>
     <string name="rules_delete">Delete</string>
@@ -124,6 +132,9 @@
     <string name="settings_test_phone">Your own number, e.g. 0712345678</string>
     <string name="settings_test_send">Send test</string>
     <string name="settings_test_ok">Sent. If it arrives, your gateway is set up correctly.</string>
+    <string name="settings_test_samples">Or send a real sample reply to see exactly what a customer gets:</string>
+    <string name="settings_test_matched">Purchase confirmation</string>
+    <string name="settings_test_unmatched">Price list reply</string>
 
     <string name="settings_reliability">Staying awake</string>
     <string name="settings_battery_ok">Scope SMS is allowed to run in the background.</string>
@@ -141,6 +152,7 @@
     <!-- Onboarding -->
     <string name="onb_step">Step %1$d of %2$d</string>
     <string name="onb_next">Continue</string>
+    <string name="onb_back">Back</string>
     <string name="onb_finish">Finish setup</string>
     <string name="onb_skip">Skip for now</string>
 

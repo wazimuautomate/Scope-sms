@@ -3,7 +3,9 @@ package com.scopesms.autoreply.reliability
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import com.scopesms.autoreply.domain.reliability.OemAutostartGuide
 import com.scopesms.autoreply.domain.reliability.OemDeepLink
@@ -43,29 +45,55 @@ class OemSettingsLauncher(context: Context) {
     fun hasDeepLink(): Boolean = resolvedIntent != null
 
     /**
-     * Try to open the OEM's autostart screen.
+     * Open something useful — the OEM autostart screen if we can reach it, and
+     * otherwise this app's own system settings page, which always exists and is
+     * where the battery/background controls live on every OEM.
      *
-     * @return true if a screen was opened. False means the UI should fall back
-     *   to the written instructions — which it should be showing anyway.
+     * This is the fix for the reported bug where the button did nothing. Two
+     * things made it dead on a real device:
+     *  - **Android 11+ package visibility.** Without a `<queries>` entry,
+     *    `resolveActivity` returns null for a vendor component, so `hasDeepLink()`
+     *    was false and — worse — even when a button showed, the deep link
+     *    couldn't be probed. The manifest now declares the autostart components
+     *    under `<queries>`; where that still isn't enough, the fallback covers it.
+     *  - **Silent failure.** The old method returned false and left the agent
+     *    tapping a button that visibly did nothing. Now there is always a screen
+     *    to land on, so the tap always does *something*.
+     *
+     * @return true if any screen opened. False only if even the universal
+     *   app-details page is unreachable, which effectively never happens.
      */
     fun open(launchContext: Context): Boolean {
-        val intent = resolvedIntent ?: return false
-
-        return try {
-            launchContext.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            true
-        } catch (e: Exception) {
-            // Deliberately Exception, not ActivityNotFoundException.
-            //
-            // resolveActivity() succeeding does not mean startActivity() will:
-            // HiOS/XOS ship system activities that resolve but are not exported,
-            // and launching one throws SecurityException, not
-            // ActivityNotFoundException. Catching only the latter would crash the
-            // app on precisely the Tecno/Infinix handsets this screen exists for
-            // — while the agent is trying to make the app more reliable.
-            Log.w(TAG, "OEM autostart screen resolved but would not open: ${intent.component}", e)
-            false
+        resolvedIntent?.let { intent ->
+            try {
+                launchContext.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return true
+            } catch (e: Exception) {
+                // Deliberately Exception, not ActivityNotFoundException.
+                // resolveActivity() succeeding does not mean startActivity() will:
+                // HiOS/XOS ship system activities that resolve but are not
+                // exported, and launching one throws SecurityException. Fall
+                // through to the app-details page rather than giving up.
+                Log.w(TAG, "OEM autostart screen would not open: ${intent.component}", e)
+            }
         }
+        return openAppDetails(launchContext)
+    }
+
+    /**
+     * This app's entry in system Settings. Universal, and on most OEMs it is one
+     * tap from the battery/autostart toggles the agent needs — a good landing
+     * spot when the direct vendor screen isn't reachable.
+     */
+    private fun openAppDetails(launchContext: Context): Boolean = try {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            .setData(Uri.fromParts("package", appContext.packageName, null))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        launchContext.startActivity(intent)
+        true
+    } catch (e: Exception) {
+        Log.w(TAG, "Could not open app details settings.", e)
+        false
     }
 
     private fun firstResolvable(): Intent? {

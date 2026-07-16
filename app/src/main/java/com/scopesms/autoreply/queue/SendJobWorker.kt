@@ -38,10 +38,11 @@ class SendJobWorker(
         val summary = applicationContext.appContainer.outboundQueue.drain()
 
         return when {
-            // Something is still worth retrying — a 429, a 500, a dropped
-            // connection. Result.retry() applies the backoff configured below
-            // rather than spinning immediately.
-            summary.retryable > 0 -> Result.retry()
+            // Either something is worth retrying (a 429, a 500, a dropped
+            // connection) or the page came back full and there is more behind it.
+            // Result.retry() applies the backoff configured below rather than
+            // spinning immediately.
+            summary.shouldReschedule -> Result.retry()
             else -> Result.success()
         }
     }
