@@ -4,6 +4,72 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-16 — Messages-tab crash (round 3) + private-repo updater fix (feature branch)
+
+Branch `fix/crash-and-private-updater` (integrates the delegated crash-fix branch
+`fix/messages-tab-crash-regression-test`). Two device-reported issues.
+**v1.0.0 was already published earlier today** (release run 29501071679), so this
+is versioned **1.0.1 / versionCode 2** — the guard requires strictly-greater than
+the published 1.
+
+### The Messages-tab crash — did NOT reproduce on current code
+Investigated by a dedicated sub-agent that built the project (local JDK 21 **and**
+CI) and wrote the regression test three prior rounds lacked: a **Robolectric
+Compose test** (`TemplatesScreenTest`, testDebug source set) that runs Compose's
+real measure/layout pass off-device over the data the crash was suspected to need
+— 5-rule `{bundle_list}`, non-default bodies, invalid tokens, multi-segment,
+tab-switch, live typing, and the faithful nested-Scaffold arrangement. **6 tests,
+all green; the current code does not crash.** Static analysis agreed (ViewModel
+flow, `TemplateEngine`/`SmsSegments`, `tpl_segments` format, render path all
+total; the nested Scaffold gets finite constraints → no infinity-height).
+
+Deliberately **not** a third speculative layout rewrite. What shipped instead:
+- `TemplatesScreen` split into a thin ViewModel wrapper + stateless
+  `TemplatesContent` (identical behaviour) so the screen is testable off-device.
+- **Defensive hardening:** `selectedTab.coerceIn(0, entries.lastIndex)` before
+  indexing `TemplateType.entries[...]`, so a stale/corrupt `rememberSaveable`
+  index can't throw `IndexOutOfBoundsException` and force-close on open.
+- Corrected memory.md's inaccurate claim that Templates matches Home/Settings'
+  shape — it does not (they are plain `Column`+`verticalScroll`; Templates is the
+  lone nested-Scaffold screen). That misinformation likely misdirected rounds 1–2.
+
+Most likely the user is on an **older APK** (the required one-time uninstall for
+the `com.scopesms.autoreply → com.tricreta.scopesms` switch may not have been
+done); the only alternative consistent with the evidence is an OEM-runtime crash
+Robolectric can't see (Transsion/Tecno, Android 11). **Still needs a device to
+close.** If 1.0.1 still crashes, next step is an on-device crash catcher / logcat
+— and 1.0.1's working updater makes that iteration one-tap.
+
+### The "Check for updates" error — root-caused and fixed
+*"Update information is not available right now"* was a **real error**, not "no
+updates": the repo is **private**, and the app fetched `update.json` from
+`raw.githubusercontent.com` unauthenticated → **404** (confirmed live), so every
+check failed. Fixed per the client's choice ("embed a read-only token"):
+- Manifest now fetched via the **GitHub contents API** with a `Bearer` token
+  (`Accept: application/vnd.github.raw` → body is the file). Token attached by a
+  **host-scoped OkHttp network interceptor** (only on `api.github.com`), so it
+  rides the manifest + asset-API hops but is dropped on the 302 to storage
+  (avoids both a token leak and GitHub's "only one auth mechanism" 400).
+- APK download uses the asset's **api.github.com asset URL** + `Accept:
+  application/octet-stream` (the browser `releases/download` URL is a web endpoint
+  a PAT cannot authenticate → 404 on a private repo). `release.yml` now resolves
+  the asset id post-upload and writes that URL into update.json.
+- Token injected from the **`UPDATE_READ_TOKEN`** secret into BuildConfig, never
+  committed. Absent → empty → new `UpdateError.NotConfigured` ("automatic updates
+  aren't set up for this build… install manually"), not a scary error.
+- `UpdateResolver` reordered: **"nothing newer → UpToDate" is decided before**
+  validating the install fields, so the seeded placeholder (versionCode 0, blank
+  apkUrl) reads as "you have the latest version". +regression test.
+
+### Still needs the agent
+- Add the **`UPDATE_READ_TOKEN`** secret (done 14:39) — fine-grained PAT, single
+  repo, **Contents: Read-only**.
+- Install **1.0.1** (one-time uninstall of the current app the first time), then
+  confirm the Messages tab opens and Check-for-updates behaves.
+- Everything after 1.0.1 updates in place, one tap.
+
+---
+
 ## 2026-07-16 — Permanent identity, signed releases & in-app updater (feature branch)
 
 Branch `feature/tricreta-release-and-updates`. A client-driven pivot to a

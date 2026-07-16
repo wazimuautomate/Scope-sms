@@ -218,9 +218,37 @@ Settings → Secrets and variables → Actions → New repository secret:
 | `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
 | `ANDROID_KEY_ALIAS` | `scope-sms` |
 | `ANDROID_KEY_PASSWORD` | the key password (same as the store password if you took the default above) |
+| `UPDATE_READ_TOKEN` | a fine-grained PAT so the in-app updater can read this **private** repo (see below) |
 
 CI decodes the keystore to the runner's temp dir, signs with it, and deletes the
-runner afterwards; secrets never appear in logs.
+runner afterwards; secrets never appear in logs. (CI also accepts the legacy
+`SIGNING_KEYSTORE_BASE64` / `SIGNING_STORE_PASSWORD` / `SIGNING_KEY_ALIAS` /
+`SIGNING_KEY_PASSWORD` names as fallbacks.)
+
+#### The `UPDATE_READ_TOKEN` (in-app updates on a private repo)
+
+Because the repo is **private**, an unauthenticated request to
+`raw.githubusercontent.com` or a browser release-download URL returns **404** — so
+the in-app updater must authenticate. It carries a read-only token, baked in from
+this secret at build time (never committed; absent → the app just says "automatic
+updates aren't set up" instead of erroring).
+
+Create it at **GitHub → Settings → Developer settings → Fine-grained tokens →
+Generate new token**:
+
+- **Resource owner:** your account · **Repository access:** *Only select
+  repositories* → `Scope-sms`
+- **Permissions → Contents: Read-only** (this one covers both `update.json` and the
+  release APK asset). Everything else "No access". *Metadata: Read-only* is added
+  automatically.
+- **Expiration:** pick a date you'll rotate by. When it expires, in-app update
+  *checks* stop until you ship a new build with a fresh token — the app itself
+  keeps running.
+
+Copy the `github_pat_…` value and add it as the `UPDATE_READ_TOKEN` secret.
+Trade-off: a Contents:Read token can read the whole repo and is extractable from
+the APK. If that ever matters more than convenience, host APK + `update.json` in a
+separate **public** repo instead and drop the token.
 
 ### Cutting a release
 
@@ -245,21 +273,27 @@ published one → builds and **signs** the release APK → verifies it with
 
 ### In-app updates & `update.json`
 
-The updater reads a single manifest at a stable raw URL — set once in
+The updater reads a single manifest via the GitHub **contents API** (not
+`raw.githubusercontent.com`, which 404s on a private repo) — set once in
 `app/build.gradle.kts` as `BuildConfig.UPDATE_MANIFEST_URL`:
 
 ```
-https://raw.githubusercontent.com/wazimuautomate/Scope-sms/main/update.json
+https://api.github.com/repos/wazimuautomate/Scope-sms/contents/update.json?ref=main
 ```
 
-The release workflow writes it (the placeholder committed at `main` is replaced by
-the first `v1.0.0` release):
+It sends `Accept: application/vnd.github.raw` (so the body is the file itself) and
+an `Authorization: Bearer <UPDATE_READ_TOKEN>` header, attached only on the
+`api.github.com` host so the token is never carried onto the download redirect.
+
+The release workflow writes `update.json` (the placeholder at `main` is replaced by
+the first real release). Note `apkUrl` is the **API asset URL**, not the browser
+download URL — the only form the token can authenticate on a private repo:
 
 ```json
 {
-  "versionCode": 1,
-  "versionName": "1.0.0",
-  "apkUrl": "https://github.com/wazimuautomate/Scope-sms/releases/download/v1.0.0/scope-sms-release-v1.0.0.apk",
+  "versionCode": 2,
+  "versionName": "1.0.1",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/<id>",
   "sha256": "<APK SHA-256>",
   "releaseNotes": "…",
   "required": false,
