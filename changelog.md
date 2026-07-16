@@ -4,6 +4,53 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-16 — Round-1 device-testing fixes ✅ (merged to main)
+
+Six issues came back from the agent's real-device test; all fixed, plus a batch
+of bugs a review of the integration work surfaced. All unit tests green locally
+and pushed to `main`.
+
+### The crash (#4) — reproduced and root-caused, not guessed
+The Messages tab force-closed on open. Reproduced on an API 30 emulator in dark
+mode. Cause: a scrollable (`LazyColumn` / `verticalScroll` Column) nested inside
+another `Column` is measured with an **infinite** max height and throws
+"measured with an infinity maximum height". The working screens escape it by
+putting their scroll directly in the `Scaffold` body (bounded); Templates put it
+under a `TabRow` inside a Column. **The same latent bug was in Activity and
+Prices** — they only survived because an empty list/log never composes the
+scrollable, so they'd have crashed the first time the agent had data. All three
+now give the scroll area `weight(1f)`.
+
+### The rest
+- **#1 onboarding** — black-on-black in dark mode was a missing `Surface`
+  (`LocalContentColor` defaults to black without one). Rebuilt: Surface-wrapped,
+  animated between steps, centred, pulsing hero icon. **Gateway step removed** —
+  API key/sender ID belong in Settings, not first-run.
+- **#1b** — sender ID defaults to `SKYSCOPE_`; gateway setup only in Settings.
+- **#6** — a delivered SMS was reported failed: a 200 whose message text
+  mentioned the recipient number tripped the phone/number error classifier. A
+  delivery signal (messageid, or response-code 200) is now authoritative and
+  checked *before* text classification — the exact case the client warned about.
+  Regression tests added.
+- **#6b** — Settings can send a real matched/unmatched **sample** reply, rendered
+  from the live templates + prices.
+- **#3** — OEM "Open settings" now always lands somewhere, falling back to the
+  app's own system settings page; always shown.
+- **#5** — quiet ongoing "watching" notification (low importance, NOT a
+  foreground service — constraint 6), re-posted on start and boot.
+- **#2** — share/import price list as JSON (SAF; merges, skips duplicates).
+
+### Review-found bugs also landed
+sender ID was stored per job but the gateway ignored it (offline-queued replies
+went out under the wrong ID); a send cancelled mid-flight never burned an attempt
+(flaky-2G re-send-forever); `drain()` stranded jobs past 100; undecryptable
+credentials never cleared (app insisted it was set up while every send failed);
+the dashboard's "today" froze for the ViewModel's life; a template edit typed
+during a save was dropped; `1,000` was rejected as having cents; `KshAmount.parse`
+lacked the overflow guard its sibling had.
+
+---
+
 ## 2026-07-16 — Integration + Phases 7, 10, 11: the app exists ✅
 
 **Branch:** `integration/all-phases` → merged to `main` (8d86134).
