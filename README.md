@@ -3,165 +3,198 @@
 An Android utility for a single Bingwa Sokoni (Safaricom reseller) agent.
 
 It watches incoming M-Pesa till-confirmation SMS on a chosen SIM and, for each
-payment, can automatically reply to the customer — replacing the phone calls
-the agent currently makes by hand to explain pricing.
+payment, can independently:
 
-Two flows, each independently switchable:
+- **Unmatched amount** → text the customer the correct price list (replaces a
+  manual phone call).
+- **Matched amount** → text the customer a purchase confirmation.
 
-| Flow | Trigger | Reply |
-| --- | --- | --- |
-| **Unmatched** | Amount matches no bundle price | Sends the customer the correct price list |
-| **Matched** | Amount matches a known bundle price | Sends a purchase confirmation |
+Both flows toggle on and off independently. That is an operational control, not
+a nicety: on a busy day, sending a confirmation for *every* matched purchase on
+top of the unmatched replies raises the volume under one sender ID, which is a
+real deliverability/ban risk with SMS gateways.
 
-Replies are sent through the agent's own **SCOPE SMS gateway** using their
-registered sender ID, so messages arrive from "SCOPE SMS" rather than from the
-agent's personal phone number.
-
-Being able to run unmatched-only, matched-only, both, or neither is a
-deliberate operational control, not a convenience toggle: on a busy day, high
-volume under one sender ID is a real deliverability and ban risk with SMS
-gateways.
+Reading happens **on the phone, offline**. Sending goes through the client's
+**SCOPE SMS gateway** using a registered sender ID — not the phone's SIM.
 
 ---
 
 ## Status
 
-| Phase | Scope | State |
-| --- | --- | --- |
-| **0** | Repo, scaffolding & CI pipeline | ✅ Done |
-| 1 | Permissions & SIM identification | Not started |
-| 2 | SMS ingestion & M-Pesa parser | Not started |
-| **3** | Rules engine + in-memory cache | ✅ Done |
-| **4** | Two message template types | ✅ Done |
-| 5 | SCOPE SMS gateway client | Not started |
-| 5b | Outbound queue & burst-speed architecture | Not started |
-| 6 | Independent notification toggles | Not started |
-| 7 | Compose UI | Not started |
-| 8 | Activity log & dashboard stats | Not started |
-| 9 | Reliability hardening | 🟡 Code done & CI green — exit criteria need a real device |
-| 10 | Cross-version testing | Not started |
-| 11 | Release packaging & distribution | Not started |
+**v1.0.0 — feature-complete, ready for real-device testing.**
 
-The app currently builds, installs, and shows a placeholder screen. It does
-not read or send anything yet.
+CI green: **276 unit tests + 6 instrumented tests on API 30 and API 36**, 0
+failures. Phases 0–11 are all on `main`.
 
-The decision engine underneath it is real, though: given a payment amount it
-matches the agent's price list and renders the right reply. What's missing is
-the SMS at either end — reading one in (Phase 2) and sending one out
-(Phases 5/5b) — plus the screens to enter prices and wording (Phase 7). Until
-then the price list can only be populated from a test.
+What that green tick does and doesn't mean is worth being precise about:
 
----
-
-## Building
-
-**There is no local build.** This project is developed without Android Studio
-installed — every build runs on GitHub Actions, and "it builds" means the CI
-run is green. See `CLAUDE.md` constraint 8.
-
-### Getting an APK
-
-1. Push to any branch (or open a PR against `main`). CI starts automatically.
-2. Open the **Actions** tab → pick the run for your commit.
-3. Download the **`scope-sms-debug-<run>-<sha>`** artifact from the run summary.
-4. Unzip it — inside is `app-debug.apk`.
-
-The artifact name carries the commit SHA, so an APK on a phone can always be
-traced back to the code that produced it. Debug artifacts are kept 30 days.
-
-If the run is red, download the **`test-report-<run>`** artifact — that HTML
-report is the only way to see which assertion failed without re-running CI.
-
-### Installing on the agent's phone
-
-The app is distributed as a direct-install APK, not through the Play Store
-(Play's SMS/Call Log policy would require default-SMS-handler status, which is
-out of scope). Installing therefore needs "install from unknown sources"
-allowed for the browser or file manager doing the install.
-
-Full end-user install instructions are written in Phase 11.
-
-**Installing is not sufficient on the phones this app targets.** Tecno, Infinix,
-itel and Xiaomi builds keep their own "autostart" / "protected apps" whitelist on
-top of Android's battery-optimisation exemption, and an app missing from it is
-killed in the background — payments arrive with no reply, silently, usually once
-the screen has been off a while. No code can read or set that list; only the
-agent can. The app therefore ships per-phone instructions in-app (Phase 9), and
-Phase 11's install guide must send the agent through them rather than stopping at
-"the APK is installed".
-
-### Toolchain
-
-Pinned in `gradle/libs.versions.toml`; CI provisions everything. JDK 17,
-`minSdk 30` (Android 11), `compileSdk`/`targetSdk` 36 (Android 16).
-
-`minSdk 30` is a hard floor, not a default — the target market is low-end
-Android 11/12 devices (Tecno, Infinix, itel, Xiaomi are common among agents in
-Kenya). Features get verified on the floor, not just the ceiling.
-
----
-
-## Repository layout
-
-```
-app/src/main/java/com/scopesms/autoreply/
-├── data/        Room + DataStore + encrypted settings
-├── domain/      Parser, rule cache, matching, decision logic (pure Kotlin)
-├── telephony/   SMS receiver + SIM identification — ingestion only
-├── network/     SCOPE SMS gateway client
-├── queue/       Outbound send queue + WorkManager worker
-├── reliability/ Boot health check + OEM autostart guidance
-├── ui/          Compose screens + theme
-└── di/          Dependency injection
-```
-
-Each package has its own `README.md` covering what belongs in it, which phase
-owns it, and the constraints that apply. Read the one for the package you're
-touching before you touch it.
-
-### Project docs
-
-| File | Purpose |
+| Proven | Not proven |
 | --- | --- |
-| `CLAUDE.md` | The operating contract. Non-negotiable constraints. Read first. |
-| `BUILD-PLAN.md` | Phased implementation plan with per-phase exit criteria. |
-| `memory.md` | Running technical memory: decisions, rationale, open questions, gotchas. |
-| `changelog.md` | Dated log of session outcomes. |
+| Parser, rules, templates, gateway failure handling, queue behaviour | The parser against **real** M-Pesa messages — we have **one** sample |
+| ~10 payments in a burst → exactly one correctly-templated job each, no drops, no duplicates | Real `SMS_RECEIVED` delivery, including OEM redelivery |
+| The Keystore really encrypts the API key on API 30 and 36 | Dual-SIM filtering |
+| The app builds, the graph starts, Room opens | The screens look right; the app survives a day in a pocket |
 
-### Local-only folders (not in git)
-
-`bingwa-auto-reply/` (Google AI Studio UI reference) and `app-icons/` (icon
-export) are reference material, ignored by git, and get deleted after Phase 8.
-The launcher icons have already been copied into `app/src/main/res/mipmap-*/`.
-
-`bingwa-auto-reply/` is a **separate, unrelated Gradle project** — don't build
-in it, and don't copy from it without reading the traps listed in
-`app/src/main/java/com/scopesms/autoreply/ui/README.md`.
+**The parser is the one to watch.** It is green against ~30 variants, but every
+case beyond the single real sample in `CLAUDE.md` is a *guess* at how M-Pesa
+words things. See "What we still need from you".
 
 ---
 
-## Architecture in one paragraph
+## Installing the test build
 
-An incoming SMS wakes a manifest-registered `BroadcastReceiver`. It checks the
-SIM, parses the M-Pesa message, looks the amount up in an **in-memory** rule
-cache, decides matched/unmatched, checks the relevant toggle, renders a
-template, writes a job row, and returns — all synchronously, with no network
-and no database read on that path. A separate WorkManager worker drains the job
-queue over HTTP to the SMS gateway, retrying with backoff.
+No Play Store — this installs directly.
 
-That split exists for one reason: the client's stated worst case is ~10
-payments landing in 1–3 seconds, and nothing in the receive path is allowed to
-block behind a network call.
+1. Open the [Actions tab](https://github.com/wazimuautomate/Scope-sms/actions),
+   click the newest green **Build** run on `main`.
+2. Download the **`scope-sms-debug-…`** artifact (it's a zip; the `.apk` is
+   inside).
+3. Copy the `.apk` to the phone and tap it.
+4. Android will warn about installing from an unknown source — allow it for
+   whichever app you're installing from (usually Files or Chrome). You can turn
+   that back off afterwards.
+
+> This build is **debug-signed** — fine for testing, not for real distribution.
+> The first properly signed release will need a one-time uninstall/reinstall.
+> See "Cutting a release".
+
+### Setting it up on the phone
+
+1. **Permissions** — needed to read incoming SMS at all.
+2. **SIM** — pick the SIM your till confirmations arrive on. The other SIM's
+   messages are never even read.
+3. **Gateway** — your SCOPE API key and sender ID, then **send a test message to
+   your own number**. Do not skip this: an unregistered sender ID is an account
+   problem on SCOPE's side that the app cannot fix, and this is where you find
+   out.
+4. **Battery** — allow background activity, or the phone will close the app and
+   payments will be missed while the screen is off.
+5. **Add your bundle prices** under **Prices**. Until you do, Scope SMS stays
+   deliberately silent — it will record payments but text nobody, because with
+   no price list there is nothing truthful to send.
+
+Prices are **whole shillings** — `50`, not `50.00`. The app rejects decimals on
+purpose.
 
 ---
 
-## Privacy
+## What we still need from you
 
-SMS content is sensitive — customer names, phone numbers, transaction data.
-Incoming parsing happens entirely on-device; nothing is uploaded. Outbound
-reply text necessarily reaches the SCOPE gateway, since that's what sends it.
+### 🔴 5–10 real M-Pesa messages (highest value thing on this project)
+We have exactly one. Please send redacted till confirmations — change the
+digits, keep the **wording, spacing and punctuation exactly as they arrive**,
+because that's the part the parser matches on.
 
-The gateway API key and sender ID are entered by the agent in-app and stored
-encrypted on-device. They are never committed to this repo and never logged.
-Cloud backup and device-transfer are disabled so this data can't leak off the
-handset through a restore.
+Useful variants: a long customer name, a large amount, a message with no balance
+line, a non-zero transaction cost.
+
+**If a real payment is ever ignored**, that's this. Send us the message text.
+
+### 🔴 The toggle defaults
+Ships with **price-list replies ON**, **purchase confirmations OFF** — the build
+plan's recommendation, not your answer. Confirm or change it.
+
+### Real-device checks only you can run
+- **Dual-SIM**: both SIMs listed with the right carriers? Does your choice
+  survive a restart *and* a reboot?
+- **Both screens in light and dark mode** — does anything look wrong?
+- **Leave it overnight** on a Tecno/Infinix with the screen off, then send a
+  payment. Does it still reply?
+- **Reboot the phone**, then send a payment without opening the app.
+- **Airplane mode on** → send a payment → **airplane mode off**. The reply should
+  arrive by itself. (Activity shows it as "Sending…" in the meantime.)
+- **Settings → Staying awake**: does the OEM autostart button open the right
+  screen? On Tecno/Infinix this is our best guess — tell us what actually opens.
+
+---
+
+## When something goes wrong
+
+The **Activity** tab is the answer to "why didn't my customer get a text?".
+Every payment is recorded, including the ones that deliberately sent nothing:
+
+| Row says | Means |
+| --- | --- |
+| **Sent** | The gateway accepted it. |
+| **Sending…** | Queued. Normal — arrives when there's internet. |
+| **No reply sent** | Deliberate: that toggle is off, or you have no prices set. |
+| **Failed** | It says why in plain words — bad key, unregistered sender ID, no balance. |
+
+**Failed** rows are shown in red on the dashboard because they're money-adjacent.
+"Send failed" alone is never shown — the gateway's actual reason always is.
+
+---
+
+## For developers
+
+### Building
+
+CI is the source of truth and builds the APK the agent installs. But — contrary
+to what earlier notes in this repo say — **there is a working local build**. No
+Android Studio needed, just a JDK:
+
+```bash
+export JAVA_HOME=/path/to/jdk-21          # Temurin 21, unzipped anywhere
+echo 'sdk.dir=C:/Users/<you>/AppData/Local/Android/Sdk' > local.properties
+./gradlew test            # ~6 min cold, seconds warm
+./gradlew assembleDebug
+```
+
+Forward slashes in `local.properties` — a backslash is an escape character in a
+`.properties` file, so `C:\Users` silently becomes `C:Users`.
+
+### Reading the code
+
+Start at `telephony/SmsReceiver` → `telephony/PaymentPipeline` →
+`domain/PaymentProcessor`. That's the whole app in three files; everything else
+supports it.
+
+Split by design: `domain/` is pure Kotlin (no Android, no Room) so the decisions
+that matter test on the JVM in seconds. `PaymentPlanner` takes *snapshots* rather
+than caches specifically so it cannot do I/O even by accident — the receive path
+must stay off the disk and off the network.
+
+`CLAUDE.md` is the operating contract, `memory.md` is why things are the way they
+are (read it before changing anything — several obvious-looking changes are
+obvious-looking traps), `BUILD-PLAN.md` is the phase plan.
+
+### Cutting a release
+
+**Not done yet, and it needs a decision from you first.** The signing key is the
+app's permanent identity: whatever signs v1.0.0 must sign every update forever.
+Lose it and the agent has to uninstall — losing their prices, templates and
+history — to install the next version. So it is yours to generate and keep, not
+CI's and not ours.
+
+```bash
+# 1. Generate it. Keep the .jks somewhere backed up and private.
+keytool -genkeypair -v -keystore scope-sms-release.jks \
+  -alias scope-sms -keyalg RSA -keysize 4096 -validity 10950 \
+  -dname "CN=Scope SMS, O=<your org>, L=Nairobi, C=KE"
+
+# 2. Base64 it for GitHub.
+base64 -w0 scope-sms-release.jks > keystore.b64
+```
+
+Add four repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+| --- | --- |
+| `SIGNING_KEYSTORE_BASE64` | contents of `keystore.b64` |
+| `SIGNING_STORE_PASSWORD` | the keystore password |
+| `SIGNING_KEY_ALIAS` | `scope-sms` |
+| `SIGNING_KEY_PASSWORD` | the key password |
+
+Then:
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+`release.yml` runs the tests, signs, verifies the signature with `apksigner`, and
+attaches the APK to a GitHub Release with install instructions. It **fails** if
+the tag doesn't match `versionName` in `app/build.gradle.kts` — a Release labelled
+v1.1.0 whose APK reports 1.0.0 would make the in-app update prompt reappear
+forever.
+
+Bump `versionCode` **and** `versionName` together for each release.

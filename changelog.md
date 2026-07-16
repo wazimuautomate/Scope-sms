@@ -4,6 +4,96 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-16 — Integration + Phases 7, 10, 11: the app exists ✅
+
+**Branch:** `integration/all-phases` → merged to `main` (8d86134).
+**CI:** ✅ green — **276 unit tests + 6 instrumented tests on API 30 and API 36**,
+0 failures, 0 skipped. Counts read out of the downloaded reports, not off the tick.
+
+### The state this session found
+`main` held **Phase 0 only**. All six phase branches were unmerged, and they did
+not compile together. Phase 7 had never been built — the session that owned it
+correctly declined, because it integrates layers that were still moving.
+
+### Integration — the collisions no session could fix from inside its own worktree
+- **Two money types.** Phase 2's `Money`/`amountCents: Long` vs Phase 3/4's
+  `KshAmount`. Both chose integer cents, so the *data* agreed; they just would not
+  compile. **KshAmount wins** — a value class (free at runtime on the hot path)
+  whose `format()` already drops a trailing `.00`. `Money` deleted.
+- **Three "the app's database".** Phases 5b, 3/4 and 8 each wrote one. Consolidated
+  into `AppDatabase`, whose doc had already reserved the slots. Two databases
+  would mean no transaction could span a queue job and its log row.
+- `QueueGraph` absorbed into `AppContainer`, as its own doc invited.
+
+### The receive path now exists
+Every session left it as a comment because it needs Phases 2, 3, 4, 6 and 5b at
+once. `PaymentPlanner` (pure, JVM-testable) does classify → toggles → render;
+`PaymentPipeline` logs, then enqueues. **Log first**: die between the two and the
+agent sees a `QUEUED` reply that never sends — visible and diagnosable — rather
+than a customer texted with no trace of why. The log insert carries the duplicate
+guard, so an OEM redelivery stops before it can text anyone twice.
+
+### Whole-shilling amounts, per the client
+`parseWholeShillings()` rejects decimals at **entry**, so no rule can hold cents
+and `format()` can be trusted to render no decimal point. Deliberately asymmetric
+with `parse()`: what the agent types is constrained, what a customer *sends* is
+not — Ksh 20.50 keeps its cents and correctly matches nothing, rather than being
+rounded into the Ksh 20 bundle and confirming a purchase that never happened.
+
+### Built
+- **Phase 7 — the whole UI.** Onboarding (permissions → SIM → gateway + test send
+  → battery), Home with both toggles visible at a glance and the four stat tiles,
+  Rules, Templates (two tabs, live preview through the *real* engine, segment
+  count), Activity Log (search + filters), Settings (SIM, gateway, battery, OEM
+  guidance, version, update check). Navigation hand-rolled — five flat screens,
+  no arguments; a nav library would add a route DSL to express `current = RULES`.
+- **Phase 10 — emulator matrix** on API 30 (minSdk, what the target handsets run)
+  and 36 (targetSdk). ON despite being optional in the plan, for one reason: the
+  Keystore holds the agent's API key, has no JVM equivalent, and breaks on exactly
+  this market's OEMs. `SmokeTest` round-trips a real secret through the real
+  Keystore. `continue-on-error` — emulator jobs flake for reasons unrelated to the
+  app, and a red tick nobody trusts is worse than none.
+- **Phase 11 — tag-triggered signed release.** `release.yml`: test → sign → verify
+  with apksigner → attach to a GitHub Release. Fails if the tag and `versionName`
+  disagree. In-app update check (pure comparator + a thin GitHub client), on
+  demand only — the agent pays for that data.
+- **Gateway credentials encrypted** — Android Keystore AES/GCM over DataStore.
+  Closes open decision 1. Verified on real emulators, not just unit-tested.
+- **The queue reports outcomes to the activity log.** Phase 5 had no way to; a
+  failed reply updated a job row the agent never sees.
+
+### Found and fixed
+- 🔴 **`WorkManager.enqueue` from `Application.onCreate`** — my own bug, two at
+  once: a **disk write on the main thread of every process start** (including the
+  headless SMS wakeups constraint 5 exists to protect), and it **throws** if
+  WorkManager's initializer hasn't run, which is a dead app at launch *and a dead
+  receiver*. Caught by the Robolectric suite.
+- 🔴 **`Icons.Default.*` needs `material-icons-core` explicitly** — Material3
+  doesn't bring it transitively.
+- 🔴 **There is a working local compiler.** No Android Studio, but a JDK 21 + the
+  already-installed SDK builds and tests this project fine. Every prior session
+  believed CI was the only compiler and paid a 5–10 min round trip per typo. This
+  is now the top gotcha in `memory.md`.
+
+### 🔴 Still open — needs you or the agent, not a session
+- **Still exactly one real M-Pesa sample.** Unchanged since Phase 2 and still the
+  highest-value ask on the project. The parser is green against ~30 *constructed*
+  variants; that means "no known case is broken", not "the parser works".
+- **No signing key exists.** `release.yml` is written but unexercised — key custody
+  is the client's decision, deliberately handed back rather than assumed. Testing
+  APK is debug-signed. See README → "Cutting a release".
+- **Toggle defaults unconfirmed** (unmatched=ON, matched=OFF). Safe to ship: a
+  fresh install has no rules, so nothing can send regardless.
+- **targetSdk stays 36** — now a decision, not a deferral. No Android 17 device to
+  test against, and targetSdk opts into exactly the runtime behaviour (background
+  execution, broadcast delivery) that sits between "customer pays" and "customer
+  gets a reply".
+- **Real-device checks**: dual-SIM, the `^M-?PESA$` sender rule, the Phase 7
+  click-through, Phase 9's soak/reboot/airplane-mode, and the Transsion autostart
+  deep links. Steps in `README.md`.
+
+---
+
 ## 2026-07-16 — Phase 9: Reliability hardening 🟡 code done, exit criteria unmet
 
 **Branch:** `feature/phase-9-reliability-hardening` (cut from

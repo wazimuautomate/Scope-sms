@@ -71,3 +71,6 @@ desktop.ini
 # ---------------------------------------------------------------------------
 bingwa-auto-reply/
 app-icons/
+
+# Emulator/AV debug noise, not ours.
+firebase-debug.log

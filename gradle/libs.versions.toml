@@ -110,6 +110,8 @@ truth = "1.4.5"
 # uses these; they add nothing to the APK.
 androidxTestRunner = "1.7.0"
 androidxTestExtJunit = "1.3.0"
+# ActivityScenario, for the launch test. Version-independent of the runner.
+androidxTestCore = "1.7.0"
 
 # NOTE — androidx.security:security-crypto is deliberately ABSENT.
 # 1.1.0 is "stable" but every API in it is deprecated, and it has known
@@ -168,6 +170,7 @@ truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
 
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
+androidx-test-core-ktx = { group = "androidx.test", name = "core-ktx", version.ref = "androidxTestCore" }
 
 [plugins]
 
