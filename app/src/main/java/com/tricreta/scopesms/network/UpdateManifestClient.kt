@@ -29,12 +29,21 @@ data class RemoteUpdateManifest(
 )
 
 /**
- * Fetches the update manifest from a stable raw URL.
+ * Fetches the update manifest from the GitHub **contents API**.
  *
- * Never throws. Offline, an HTTP error, or unparseable JSON all return null — the
- * caller treats that as "couldn't tell", the same quiet-failure discipline the
- * gateway client follows. `Cache-Control: no-cache` so a freshly published
- * release isn't hidden behind a stale CDN copy on the raw endpoint.
+ * The repo is private, so `raw.githubusercontent.com` returns 404 to an
+ * unauthenticated request — it does not accept a personal-access token at all.
+ * The contents endpoint (`/repos/{owner}/{repo}/contents/update.json?ref=main`)
+ * does: with `Accept: application/vnd.github.raw` the response body is the file
+ * bytes (so Moshi parses update.json directly), and the `Authorization: Bearer`
+ * header is attached by a host-scoped interceptor on [client] (see
+ * `AppUpdater.create`), keyed on the `api.github.com` host so it is never carried
+ * onto a redirect.
+ *
+ * Never throws. Offline, an HTTP error (a missing/expired token → 401/404), or
+ * unparseable JSON all return null — the caller treats that as "couldn't tell",
+ * the same quiet-failure discipline the gateway client follows. `Cache-Control:
+ * no-cache` so a freshly published release isn't hidden behind a stale copy.
  */
 class UpdateManifestClient(
     private val client: OkHttpClient,
@@ -49,6 +58,8 @@ class UpdateManifestClient(
         try {
             val request = Request.Builder()
                 .url(url)
+                .header("Accept", "application/vnd.github.raw")
+                .header("X-GitHub-Api-Version", "2022-11-28")
                 .header("Cache-Control", "no-cache")
                 .build()
             client.newCall(request).execute().use { response ->

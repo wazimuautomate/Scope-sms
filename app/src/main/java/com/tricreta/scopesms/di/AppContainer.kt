@@ -170,6 +170,10 @@ class AppContainer(context: Context) {
         AppUpdater.create(
             context = appContext,
             manifestUrl = BuildConfig.UPDATE_MANIFEST_URL,
+            // Read-only GitHub token, baked in from a build secret (never
+            // committed). Empty in a build without the secret → the updater
+            // reports "not configured" rather than erroring.
+            readToken = BuildConfig.UPDATE_READ_TOKEN,
             installedPackage = BuildConfig.APPLICATION_ID,
             installedVersionCode = BuildConfig.VERSION_CODE.toLong(),
         )

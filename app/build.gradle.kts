@@ -64,8 +64,8 @@ android {
         // com.tricreta.scopesms identity. Bug fix → 1.0.1 (code 2); backward-
         // compatible feature → 1.1.0; major/breaking → 2.0.0. versionCode only
         // ever increases.
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -75,14 +75,28 @@ android {
         manifestPlaceholders["appLabel"] = "Scope SMS"
 
         // The in-app updater reads this manifest to learn the latest version, its
-        // APK URL and SHA-256. Central and overridable per build type (a debug
-        // build could point at a branch manifest) rather than a hardcoded string
-        // buried in the network layer.
+        // APK URL and SHA-256. The GitHub *contents API* endpoint, not
+        // raw.githubusercontent.com: the repo is PRIVATE, and raw.githubusercontent
+        // returns 404 to an unauthenticated request and does not accept a token at
+        // all. The contents API does — with the Bearer token below and
+        // `Accept: application/vnd.github.raw`, the body is update.json itself.
         buildConfigField(
             "String",
             "UPDATE_MANIFEST_URL",
-            "\"https://raw.githubusercontent.com/wazimuautomate/Scope-sms/main/update.json\"",
+            "\"https://api.github.com/repos/wazimuautomate/Scope-sms/contents/update.json?ref=main\"",
         )
+
+        // Read-only GitHub token the in-app updater uses to reach the PRIVATE
+        // release repo (manifest fetch + release-asset download). Supplied at
+        // build time as the UPDATE_READ_TOKEN env var / Gradle property from a CI
+        // secret — NEVER committed (CLAUDE.md constraint 7). Absent (a local build,
+        // or CI before the secret is added) → empty → the updater degrades to
+        // "manual updates only" rather than erroring, and no secret lands in git.
+        // GitHub tokens are [A-Za-z0-9_] only, so no string escaping is needed.
+        val updateReadToken = (project.findProperty("UPDATE_READ_TOKEN") as String?)
+            ?: System.getenv("UPDATE_READ_TOKEN")
+            ?: ""
+        buildConfigField("String", "UPDATE_READ_TOKEN", "\"$updateReadToken\"")
     }
 
     // Release signing, from the permanent keystore CI materialises out of GitHub

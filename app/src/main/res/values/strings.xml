@@ -163,7 +163,8 @@
     <string name="settings_update_retry">Try again</string>
     <!-- Each update failure gets its own line: what happened and what to do. -->
     <string name="settings_update_err_network">Could not reach the internet. Connect and try again.</string>
-    <string name="settings_update_err_manifest">Update information is not available right now. Try again later.</string>
+    <string name="settings_update_err_not_configured">Automatic updates aren\'t set up for this build. You can still install the latest version manually from GitHub.</string>
+    <string name="settings_update_err_manifest">Couldn\'t reach the update server. Check your connection and try again.</string>
     <string name="settings_update_err_storage">Not enough free space to download the update. Free up some space and try again.</string>
     <string name="settings_update_err_download">The download did not finish. Check your connection and try again.</string>
     <string name="settings_update_err_hash">The downloaded file was damaged and was removed. Try again.</string>

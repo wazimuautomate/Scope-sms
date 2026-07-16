@@ -49,20 +49,29 @@ object UpdateResolver {
         minimumSupportedVersionCode: Long?,
     ): UpdateResolution {
         val versionCode = manifestVersionCode ?: return UpdateResolution.Unknown
+
+        // Nothing newer than what's installed → up to date. Decided BEFORE the
+        // install fields are validated: url/sha/name only matter when we would
+        // actually download, so a placeholder or same-version manifest with empty
+        // fields is an honest "you're on the latest version", not an error. This
+        // is deliberately checked first — the seeded placeholder manifest
+        // (versionCode 0, blank apkUrl) must read as up-to-date on an installed
+        // build, never as the scary "update information is not available".
+        //
+        // Strictly greater below. Equal is up to date, and older is too — a
+        // rolled-back or re-cut manifest must never prompt a downgrade the
+        // installer would reject anyway, leaving the prompt stuck forever.
+        if (versionCode <= installedVersionCode) return UpdateResolution.UpToDate
+
+        // There IS a newer versionCode on offer — now it must be installable.
+        // A blank URL or a bad hash means we cannot safely download or verify it,
+        // so surface that as Unknown rather than a broken "download" button.
         val versionName = manifestVersionName?.trim().orEmpty()
         val url = apkUrl?.trim().orEmpty()
         val sha = sha256?.trim()?.lowercase().orEmpty()
-
-        // Nothing installable → Unknown, not UpToDate. A blank URL or a bad hash
-        // means we cannot safely offer or verify anything.
         if (versionName.isEmpty() || url.isEmpty() || !Sha256.isValidHex(sha)) {
             return UpdateResolution.Unknown
         }
-
-        // Strictly greater. Equal is up to date, and older is too — a rolled-back
-        // or re-cut manifest must never prompt a downgrade the installer would
-        // reject anyway, leaving the prompt stuck forever.
-        if (versionCode <= installedVersionCode) return UpdateResolution.UpToDate
 
         // Forced when the publisher flags it, or when this build predates the
         // minimum still supported (e.g. a broken older version that must move on).

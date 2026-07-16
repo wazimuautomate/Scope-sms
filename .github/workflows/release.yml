@@ -132,6 +132,10 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.SIGNING_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.SIGNING_KEY_PASSWORD }}
+          # Read-only GitHub token baked into BuildConfig so the shipped app's
+          # in-app updater can reach the PRIVATE release repo. Absent → empty →
+          # updater reports "not configured" (no error). See README, "In-app updates".
+          UPDATE_READ_TOKEN: ${{ secrets.UPDATE_READ_TOKEN }}
         run: ./gradlew assembleRelease --stacktrace
 
       # Belt and braces: signingConfigs only registers a config when the keystore
@@ -157,13 +161,51 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "APK=$OUT SHA256=$SHA"
 
-      # Generate update.json. The release-asset URL is deterministic from the tag
-      # and filename, so it's known before upload — no chicken-and-egg.
+      # Publish the Release + attach the signed APK. update.json is generated and
+      # attached AFTER this, because its apkUrl must be the asset's API download
+      # URL (api.github.com/.../releases/assets/<id>) — the only form a token can
+      # authenticate, which the in-app updater needs since the repo is PRIVATE —
+      # and the numeric asset <id> does not exist until the asset is uploaded here.
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: Scope SMS ${{ github.event.inputs.tag || github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: ${{ steps.apk.outputs.file }}
+          body: |
+            ## Installing / updating
+
+            1. Tap **`${{ steps.apk.outputs.file }}`** below on the phone that runs Scope SMS.
+            2. Android will ask to allow installing from this source — allow it.
+            3. Install. If you already have Scope SMS, this updates it in place —
+               your bundle prices, messages and activity history are kept.
+
+            You can also update from inside the app: **Settings → Check for updates**.
+
+      # Now the asset exists: resolve its numeric id and build update.json with the
+      # API download URL. The browser github.com/.../releases/download URL is NOT
+      # usable — it is a web endpoint a personal-access token cannot authenticate,
+      # so on a PRIVATE repo the in-app download 404s. The api.github.com asset URL
+      # + `Accept: application/octet-stream` + Bearer token is what works (see
+      # AppUpdater). Deterministic-URL simplicity is traded for a private repo that
+      # actually downloads.
       - name: Generate update.json
         id: manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          ASSET_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${{ steps.apk.outputs.file }}"
+          FILE="${{ steps.apk.outputs.file }}"
+          ASSET_ID=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" \
+            --jq ".assets[] | select(.name==\"${FILE}\") | .id")
+          if [ -z "$ASSET_ID" ]; then
+            echo "::error::Uploaded asset ${FILE} not found on release ${TAG}; cannot build update.json."
+            exit 1
+          fi
+          ASSET_URL="https://api.github.com/repos/${{ github.repository }}/releases/assets/${ASSET_ID}"
           NOTES=$(git tag -l --format='%(contents:subject)' "$TAG")
           [ -z "$NOTES" ] && NOTES="Update to ${{ steps.version.outputs.name }}."
           jq -n \
@@ -179,34 +221,20 @@ jobs:
           echo "--- update.json ---"
           cat update.json
 
-      # Publish the Release + attach the signed APK AND update.json (the latter
-      # as a stable-per-tag fallback source for the manifest). Done BEFORE the
-      # commit to main so the asset the manifest points at already exists.
-      - name: Publish the GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: Scope SMS ${{ github.event.inputs.tag || github.ref_name }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          files: |
-            ${{ steps.apk.outputs.file }}
-            update.json
-          body: |
-            ## Installing / updating
+      # Attach update.json to the Release as a per-tag record of what the app was
+      # told. The app reads the copy committed to main (below); this is a fallback
+      # and audit trail.
+      - name: Attach update.json to the Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release upload "$TAG" update.json --clobber
 
-            1. Tap **`${{ steps.apk.outputs.file }}`** below on the phone that runs Scope SMS.
-            2. Android will ask to allow installing from this source — allow it.
-            3. Install. If you already have Scope SMS, this updates it in place —
-               your bundle prices, messages and activity history are kept.
-
-            You can also update from inside the app: **Settings → Check for updates**.
-
-      # Publish update.json to the stable raw URL the app reads
-      # (raw.githubusercontent.com/<repo>/main/update.json). Committed after the
-      # asset is live so the manifest never points at a missing file. [skip ci]
-      # keeps this housekeeping commit from re-triggering the Build workflow.
+      # Commit update.json to main, where the app reads it via the GitHub contents
+      # API (api.github.com/repos/<repo>/contents/update.json?ref=main + token).
+      # Committed after the asset is live so the manifest never points at a missing
+      # file. [skip ci] keeps this housekeeping commit from re-triggering Build.
       - name: Commit update.json to main
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
