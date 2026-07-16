@@ -218,4 +218,13 @@ dependencies {
     // SDK 36+ needs JDK 21 — build.yml is bumped to 21. See memory.md.
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.room.testing)
+
+    // --- Phase 10 — instrumented smoke tests -------------------------------
+    // Deliberately minimal. The JVM suite is the primary safety net; these cover
+    // only what a JVM cannot answer — chiefly the Android Keystore, which has no
+    // JVM equivalent and is where the OEM failures live. See SmokeTest.
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.kotlinx.coroutines.core)
 }
