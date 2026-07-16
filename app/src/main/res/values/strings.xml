@@ -25,7 +25,9 @@
 
     <!-- Home -->
     <string name="home_today">Today</string>
-    <string name="home_replies">Automatic replies</string>
+    <string name="home_recent">Latest replies</string>
+    <string name="home_recent_see_all">See all</string>
+    <string name="home_recent_empty">No payments yet. When a customer pays, the reply shows up here.</string>
     <string name="home_status_on">Watching for payments</string>
     <string name="home_status_on_detail">M-Pesa payments will be answered automatically.</string>
     <string name="home_status_off">Not replying to anyone</string>
@@ -132,9 +134,13 @@
     <string name="settings_test_phone">Your own number, e.g. 0712345678</string>
     <string name="settings_test_send">Send test</string>
     <string name="settings_test_ok">Sent. If it arrives, your gateway is set up correctly.</string>
-    <string name="settings_test_samples">Or send a real sample reply to see exactly what a customer gets:</string>
-    <string name="settings_test_matched">Purchase confirmation</string>
-    <string name="settings_test_unmatched">Price list reply</string>
+
+    <string name="settings_replies">Automatic replies</string>
+
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_theme_system">Follow system (default)</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
 
     <string name="settings_reliability">Staying awake</string>
     <string name="settings_battery_ok">Scope SMS is allowed to run in the background.</string>
@@ -144,10 +150,27 @@
     <string name="settings_about">About</string>
     <string name="settings_version">Version %1$s (build %2$d)</string>
     <string name="settings_update_check">Check for updates</string>
-    <string name="settings_update_available">Version %1$s is available</string>
-    <string name="settings_update_open">Open download page</string>
+    <string name="settings_update_checking">Checking for updates…</string>
     <string name="settings_update_current">You have the latest version.</string>
-    <string name="settings_update_unknown">Could not check right now. Try again when you have internet.</string>
+    <string name="settings_update_available">Version %1$s is available</string>
+    <string name="settings_update_download">Download update</string>
+    <string name="settings_update_downloading">Downloading… %1$d%%</string>
+    <string name="settings_update_downloading_wait">Downloading…</string>
+    <string name="settings_update_cancel">Cancel</string>
+    <string name="settings_update_verifying">Checking the download…</string>
+    <string name="settings_update_ready">Update ready. Tap Install — your phone will ask you to confirm.</string>
+    <string name="settings_update_install">Install update</string>
+    <string name="settings_update_retry">Try again</string>
+    <!-- Each update failure gets its own line: what happened and what to do. -->
+    <string name="settings_update_err_network">Could not reach the internet. Connect and try again.</string>
+    <string name="settings_update_err_manifest">Update information is not available right now. Try again later.</string>
+    <string name="settings_update_err_storage">Not enough free space to download the update. Free up some space and try again.</string>
+    <string name="settings_update_err_download">The download did not finish. Check your connection and try again.</string>
+    <string name="settings_update_err_hash">The downloaded file was damaged and was removed. Try again.</string>
+    <string name="settings_update_err_package">That file is not a Scope SMS update.</string>
+    <string name="settings_update_err_signature">This update was not published by Scope SMS and was blocked.</string>
+    <string name="settings_update_err_install">Installation was cancelled or not allowed. Open again to retry.</string>
+    <string name="settings_update_err_unexpected">Something went wrong. Try again.</string>
 
     <!-- Onboarding -->
     <string name="onb_step">Step %1$d of %2$d</string>

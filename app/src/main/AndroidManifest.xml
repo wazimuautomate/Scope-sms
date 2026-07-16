@@ -36,6 +36,15 @@
     <!-- Outbound replies reach the gateway over HTTP (CLAUDE.md constraint 2).
          Not a runtime permission — install-time only, no prompt. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- In-app update: hand the downloaded, verified APK to the system package
+         installer (Settings → Check for updates). Not a runtime prompt itself —
+         it gates the per-source "install unknown apps" grant the OS asks for.
+         Play restricts apps that declare this, which does not apply here:
+         distribution is direct-install APK (CLAUDE.md constraint 8), the same
+         reasoning as REQUEST_IGNORE_BATTERY_OPTIMIZATIONS below. No silent
+         install is ever attempted — the system always shows its confirmation. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Phase 5b's queue worker uses this to hold jobs until connectivity
          returns rather than dropping them. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -108,7 +117,7 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name"
+        android:label="${appLabel}"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.ScopeSms">
@@ -116,7 +125,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
+            android:label="${appLabel}"
             android:theme="@style/Theme.ScopeSms">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -182,6 +191,27 @@
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <!--
+          In-app update: shares the downloaded, SHA-256/package/signature-verified
+          APK with the system installer via a content:// URI. A file:// URI would
+          throw FileUriExposedException on API 24+.
+
+          Authority is derived from ${applicationId} so debug (…scopesms.debug)
+          and release (…scopesms) never collide, and it stays in lockstep with
+          BuildConfig.APPLICATION_ID, which is what the updater passes to
+          FileProvider.getUriForFile. exported=false + grantUriPermissions: only
+          the installer we hand a per-Intent grant to can read the file.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 

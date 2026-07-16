@@ -26,11 +26,75 @@ of the downloaded CI reports, not off the green tick).
 | **8** | Activity log & dashboard stats | 🟡 **Done** — stats-vs-real-traffic check needs a device |
 | **9** | Reliability hardening | 🟡 **Built** — soak/reboot/airplane-mode tests need a device |
 | **10** | Cross-version testing | ✅ **Done** — emulator matrix runs on API 30 + 36 |
-| **11** | Release packaging & distribution | 🟡 **Wired, not exercised** — needs a signing key |
+| **11** | Release packaging & distribution | 🟡 **Key generated 2026-07-16** — needs the agent to add 4 GitHub secrets, then first signed build |
 
 **What "🟡" means here: the code is written and tested as far as this workflow
 can test it. Every remaining item needs a physical phone or an answer from the
 client.** Nothing is 🟡 because it was left half-finished.
+
+---
+
+## 🔴 Release identity & in-app updates (2026-07-16) — supersedes earlier release notes
+
+A client-driven pivot to a permanent, self-updating private distribution. This
+section overrides the pre-pivot notes below about `com.scopesms.autoreply`,
+`0.9.0`, the `SIGNING_*` secrets, and the rolling "testing" pre-release.
+
+### App identity is now permanent — `com.tricreta.scopesms`
+`applicationId` + `namespace`. The old `com.scopesms.autoreply` is retired.
+Because it's a **new package**, the agent does **one** uninstall of the old app,
+then updates are seamless forever. The rename moved source/test/androidTest trees
+and the Room schema dir (`app/schemas/com.tricreta.scopesms.data.AppDatabase`)
+with `git mv`. `ArchitectureGuardTest` asserts the base id **after stripping
+`.debug`** — unit tests run the debug variant, whose id carries the suffix.
+
+### versionCode 1 / versionName 1.0.0
+Reset from 3/0.9.0. Safe because the new package has zero installs. **versionCode
+only ever increases**; `release.yml` fails a tag whose versionCode isn't strictly
+greater than the one published in `main:update.json`.
+
+### Debug ≠ release, and no debug distribution
+Debug: `applicationIdSuffix ".debug"`, label **Scope SMS Debug**, default debug
+key — coexists with the real app, never shipped. The client was explicit: "no
+debug apks, real apps." `build.yml` no longer publishes anything (verification
+only); real APKs come from tags via `release.yml`.
+
+### Keystore REUSED, not regenerated — alias `scope-sms`
+Client chose to keep the `scope-sms` keystore from the prior session (they hold
+the base64 + password). CI secrets renamed to `ANDROID_KEYSTORE_BASE64 /
+ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS (=scope-sms) / ANDROID_KEY_PASSWORD`.
+**`build.gradle.kts` env vars renamed to match** (`ANDROID_KEYSTORE_PATH`, …). The
+whole point still holds: whatever signs 1.0.0 must sign every update. README has a
+from-scratch fallback — safe because no signed release has shipped under the new
+package yet.
+
+### In-app updater rebuilt: download → verify → install (was: open browser)
+Reads `update.json` at `BuildConfig.UPDATE_MANIFEST_URL`
+(`raw.githubusercontent.com/wazimuautomate/Scope-sms/main/update.json`), compares
+by **versionCode**. Pure/JVM-tested core: `domain/update/UpdateResolver`
+(versionCode compare + forced logic), `Sha256`, `SignatureMatch`. Android engine
+`update/AppUpdater` (OkHttp streaming + incremental SHA-256 to `cacheDir/updates`,
+package + signing-cert verify, `ACTION_VIEW`+FileProvider install, unknown-sources
+grant). UI `ui/update/{UpdateViewModel,UpdateSection}`.
+
+Gotchas locked in for next time:
+- **`getPackageArchiveInfo` does not set `applicationInfo.sourceDir/publicSourceDir`**
+  — signature reads return null until you point them at the archive path. Load-
+  bearing; without it every cert check silently CANT_VERIFYs.
+- **Signature CANT_VERIFY is a soft proceed** (the OS installer enforces sigs
+  anyway); only a *readable* mismatch hard-blocks. Some low-end OEM ROMs fail to
+  read archive certs even for valid APKs.
+- `lint { abortOnError = false; checkReleaseBuilds = false }` — a pre-existing
+  warning must not block cutting a release fix. Lint still runs + reports in CI.
+  Tighten to gating once a `lint-baseline.xml` is captured.
+- `update.json` is seeded at repo root as a **versionCode 0 placeholder** so the
+  raw URL resolves without colliding with the strictly-increasing guard; the first
+  `v1.0.0` release overwrites it with the real manifest.
+
+### Device-only, still unproven (as ever, needs a handset)
+The install intent + system-installer confirmation, the unknown-sources grant
+round-trip, and real signing-cert enforcement at install. JVM covers the compare/
+verify *decisions*, not the platform behaviour.
 
 ---
 
@@ -62,21 +126,25 @@ regardless of these values. The default cannot text a customer before the agent
 has entered prices. Change `NotificationToggles.DEFAULT` and the tests that pin
 it if the answer differs.
 
-### 3. The release signing key does not exist yet
-Phase 11's `release.yml` is written and expects four GitHub Secrets
-(`SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`,
-`SIGNING_KEY_PASSWORD`). None are set, so **no tagged release has ever been
-built** — the workflow is unexercised.
+### 3. The release signing key — GENERATED 2026-07-16, custody handed to the agent
+Previously "does not exist yet". It now exists: a permanent RSA-2048 keystore
+(alias `scope-sms`, 10 000-day validity) generated this session and handed to the
+agent as a base64 blob + password, to load into the four GitHub Secrets
+(`SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS` = `scope-sms`,
+`SIGNING_KEY_PASSWORD`). **The keystore is NOT in the repo and must never be** —
+it lived only in this session's scratchpad.
 
-This was a deliberate hand-back, not an oversight: the signing key is the app's
-permanent identity, and key custody is the client's decision. Commands are in
-README → "Cutting a release".
+Open until the agent confirms: the four secrets are added, and the first signed
+`testing` pre-release actually builds. Until the secrets exist, `build.yml`'s
+signed-APK path and the whole tagged `release.yml` are still unexercised.
 
-**The thing to understand before generating it:** whatever signs v1.0.0 must sign
-every future update. A lost key means the agent must uninstall to update, losing
-their prices, templates and history. Today's testing APK is **debug-signed**, so
-the first real signed release will need one uninstall/reinstall — cheap now,
-expensive once they're live.
+**Still true and load-bearing:** whatever signs v1.0.0 must sign every future
+update. A lost key ⇒ the agent uninstalls to update, losing prices/templates/
+history. **New this session:** CI now signs the *testing* (debug) APK with this
+same key (`app/build.gradle.kts` debug `signingConfig`, active only when
+`SIGNING_KEYSTORE_PATH` is set), so testing builds and the eventual release update
+over each other seamlessly. The one unavoidable uninstall is the switch *from* the
+old random-debug-key build *to* the first signed build — after that, never again.
 
 ### 4. targetSdk 36 vs 37 — decided: stay at 36 for v1.0.0
 Was owned by Phase 10. `compileSdk = 37`, `targetSdk = 36`, unchanged, and now a
@@ -315,6 +383,28 @@ re-enabling backup.
 ---
 
 ## Gotchas discovered (save the next session the debugging)
+
+### 🔴 The Messages tab crashed TWICE — `weight(1f)` was correct but not enough
+Round 1 hit "Vertically scrollable component was measured with an infinity
+maximum height" on the Messages (Templates) tab and fixed it the textbook way:
+give the nested scroll `Modifier.weight(1f)` so its parent `Column` hands it a
+finite height. That fix is genuinely correct — a Column measures a *non-weighted*
+child with `maxHeight = Infinity`, and `weight` (fill=true) replaces that with the
+finite leftover.
+
+**It still force-closed on the agent's round-2 build** (which carried round-1's
+sample-send buttons, so the fix was definitely in it). Rather than keep betting on
+`weight`, round 2 rebuilt Templates to the *exact* shape of Home and Settings —
+the only scrolling screens that never crashed on this handset: a **nested
+`Scaffold`** with the `TabRow` as `topBar` and the body as a **root-level
+`verticalScroll` Scaffold body**, no `weight`, no intermediate `Column` measure.
+
+Lesson for the next scroll bug: prefer the root-of-a-Scaffold scroll shape that is
+already proven on the device over any nested-`Column` arrangement, however
+theoretically sound. Activity still uses `LazyColumn(weight(1f))` — left alone
+because it opens fine, but note we have **no on-device proof** of that path since
+an empty log early-returns before the LazyColumn composes. If Activity ever
+crashes once it has data, this is the first place to look.
 
 ### 🔴 There IS a working local toolchain now — CI is no longer the only compiler
 This changes the project's central assumption (CLAUDE.md constraint 8) and is the

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paths the FileProvider may share (AndroidManifest.xml -> <provider>).
+
+  Only the downloaded-update directory is exposed, and only that. <cache-path>
+  maps to getCacheDir(); subpath "updates/" matches File(cacheDir, "updates"),
+  where AppUpdater streams and verifies the APK before handing a content:// URI
+  for that one file to the system installer. Nothing else in app storage is
+  reachable through this provider.
+-->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

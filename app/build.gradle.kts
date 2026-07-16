@@ -9,7 +9,7 @@ plugins {
 }
 
 android {
-    namespace = "com.scopesms.autoreply"
+    namespace = "com.tricreta.scopesms"
 
     // Compile against 37 (Android 17), but target 36 — see targetSdk below.
     // Not a free choice: current AndroidX (core-ktx 1.19.0, activity, lifecycle)
@@ -22,7 +22,7 @@ android {
         // Permanent. The agent's direct-install updates are matched on this —
         // change it and the next APK installs alongside the old app instead of
         // updating it, orphaning their rules and activity history.
-        applicationId = "com.scopesms.autoreply"
+        applicationId = "com.tricreta.scopesms"
 
         // Android 11. A hard floor from CLAUDE.md constraint 1, not a default:
         // the target market is low-end Android 11/12 handsets (Tecno, Infinix,
@@ -49,36 +49,60 @@ android {
         // device. See memory.md.
         targetSdk = 36
 
-        // Phase 11. Semantic version + build number, surfaced in Settings and
-        // compared against the GitHub Releases API by the in-app update check.
+        // Semantic version + build number, surfaced in Settings and compared
+        // against update.json by the in-app update check.
         //
-        // Bump BOTH for a release, and tag the commit `v<versionName>` — the
-        // release workflow verifies the tag matches this, because a Release
-        // labelled v1.1.0 containing an APK that reports 1.0.0 would make the
-        // update prompt reappear forever.
-        versionCode = 2
+        // versionCode is the monotonic integer Android's installer uses to decide
+        // an install is an update; the release workflow FAILS if a tag's
+        // versionCode is not strictly greater than the one currently published in
+        // update.json. Bump BOTH for a release and tag the commit `v<versionName>`
+        // — the release workflow verifies the tag matches versionName, because a
+        // Release labelled v1.1.0 whose APK reports 1.0.0 makes the update prompt
+        // reappear forever.
+        //
+        // 1.0.0 / versionCode 1 is the first permanent release under the
+        // com.tricreta.scopesms identity. Bug fix → 1.0.1 (code 2); backward-
+        // compatible feature → 1.1.0; major/breaking → 2.0.0. versionCode only
+        // ever increases.
+        versionCode = 1
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Default app label. Build types override it (see below) so a debug build
+        // installs as "Scope SMS Debug" beside the real app. Substituted into
+        // AndroidManifest.xml as ${appLabel}.
+        manifestPlaceholders["appLabel"] = "Scope SMS"
+
+        // The in-app updater reads this manifest to learn the latest version, its
+        // APK URL and SHA-256. Central and overridable per build type (a debug
+        // build could point at a branch manifest) rather than a hardcoded string
+        // buried in the network layer.
+        buildConfigField(
+            "String",
+            "UPDATE_MANIFEST_URL",
+            "\"https://raw.githubusercontent.com/wazimuautomate/Scope-sms/main/update.json\"",
+        )
     }
 
-    // Release signing, from a keystore CI materialises out of GitHub Secrets
-    // (SIGNING_KEYSTORE_BASE64 / SIGNING_STORE_PASSWORD / SIGNING_KEY_ALIAS /
-    // SIGNING_KEY_PASSWORD).
+    // Release signing, from the permanent keystore CI materialises out of GitHub
+    // Secrets (ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD /
+    // ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD). The workflow decodes the base64
+    // secret to a file and passes its path as ANDROID_KEYSTORE_PATH.
     //
     // Configured only when the env vars are present, so an ordinary
     // `assembleRelease` on a machine without the secrets produces an *unsigned*
     // APK rather than one silently signed with the debug key. A debug-signed
     // "release" would install fine and then refuse every future real update with
     // a signature mismatch — on the agent's phone, holding their live data.
-    val keystorePath = System.getenv("SIGNING_KEYSTORE_PATH")
+    val keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
     signingConfigs {
         if (keystorePath != null) {
             create("release") {
                 storeFile = file(keystorePath)
-                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
-                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
-                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
 
                 // v1 too: minSdk is 30 so v2/v3 always apply, but some OEM
                 // installers on this app's target handsets still look for v1.
@@ -90,14 +114,24 @@ android {
 
     buildTypes {
         debug {
-            // Every CI push produces one of these for the agent to install.
             isMinifyEnabled = false
+
+            // Developer-only build, cleanly separated from the real app. Its own
+            // applicationId suffix and label mean it installs *beside* the
+            // release app (com.tricreta.scopesms.debug vs com.tricreta.scopesms)
+            // and can never be confused with it or mistaken for an update to it.
+            // Keeps Android's default per-machine debug key — debug builds are
+            // never distributed and never used to update a release install.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            manifestPlaceholders["appLabel"] = "Scope SMS Debug"
         }
         release {
-            // Phase 11: signed by the tag-triggered workflow. Null when the
-            // secrets aren't present — see signingConfigs above for why that is
+            // Signed by the tag-triggered release workflow. Null when the secrets
+            // aren't present — see signingConfigs above for why that is
             // deliberately an unsigned APK rather than a debug-signed one.
             signingConfig = signingConfigs.findByName("release")
+            manifestPlaceholders["appLabel"] = "Scope SMS"
 
             isMinifyEnabled = true
             isShrinkResources = true
@@ -106,6 +140,17 @@ android {
                 "proguard-rules.pro",
             )
         }
+    }
+
+    lint {
+        // A release must be cuttable on demand to get a fix to the agent — a
+        // pre-existing lint warning must not block shipping. Lint still RUNS in
+        // CI (`./gradlew lint`) and its HTML report is uploaded; it just doesn't
+        // fail the build, and checkReleaseBuilds is off so `assembleRelease`
+        // isn't gated by lintVitalRelease either. Tighten to gating once a
+        // lint-baseline.xml is captured. Recorded in memory.md.
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 
     compileOptions {

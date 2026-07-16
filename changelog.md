@@ -4,6 +4,138 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-16 — Permanent identity, signed releases & in-app updater (feature branch)
+
+Branch `feature/tricreta-release-and-updates`. A client-driven pivot to a
+permanent, self-updating private distribution. CI-verified (no full local JDK
+this session; CI is the source of truth).
+
+### Package migration → `com.tricreta.scopesms`
+`applicationId` + `namespace` moved from `com.scopesms.autoreply` (406 refs / 110
+files) via `git mv` of the source/test/androidTest trees + the Room schema dir
+(`app/schemas/com.tricreta.scopesms.data.AppDatabase`), then a scoped
+string-replace. `ArchitectureGuardTest` now asserts the base id after stripping
+the debug suffix. **Consequence:** a one-time uninstall of the old
+`com.scopesms.autoreply` app on the agent's phone (different package can't update
+in place); after that, seamless forever.
+
+### Versioning reset
+`versionCode 3 / 0.9.0` → **`versionCode 1 / versionName 1.0.0`**. Safe: the new
+package has zero installs, so there is nothing to be monotonic against yet.
+
+### Debug/release split ("real apps, no debug apks")
+Debug now `applicationIdSuffix ".debug"` + label **Scope SMS Debug**, default
+debug key, never distributed. Removed the old "sign debug with the release key"
+hack and the rolling **testing pre-release** from `build.yml` — `build.yml` is
+verification-only (tests + lint + debug artifact), `contents: read`. Real APKs
+come only from tags.
+
+### Signing / CI secrets renamed to `ANDROID_*`
+`build.gradle.kts` + `release.yml` now read `ANDROID_KEYSTORE_BASE64 /
+ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD`. **Keystore
+reused, not regenerated** (client's choice): alias stays `scope-sms`. README
+documents backup + a from-scratch fallback (safe, since no signed release has
+shipped under the new package).
+
+### `release.yml` (tag `v*`)
+tests + lint → tag↔versionName guard → **versionCode-strictly-increasing guard**
+(reads `main:update.json`) → sign → `apksigner verify` → SHA-256 → publish Release
+with `scope-sms-release-vX.Y.Z.apk` → generate `update.json` and commit it to
+`main` (also attached to the Release as a fallback).
+
+### In-app updater — rebuilt from browser-open to full download/verify/install
+- Reads `update.json` (`BuildConfig.UPDATE_MANIFEST_URL`, raw main URL), compares
+  by **versionCode**.
+- OkHttp streaming download to `cacheDir/updates/` with incremental SHA-256 and %
+  progress; cancellable; separate long-timeout client.
+- Verifies SHA-256 + package name (`com.tricreta.scopesms`) + signing cert (with
+  the `getPackageArchiveInfo` sourceDir gotcha; unreadable cert = soft proceed,
+  readable mismatch = hard block); rejects+deletes invalid.
+- Installs via `ACTION_VIEW` + `FileProvider` `content://` URI +
+  `REQUEST_INSTALL_PACKAGES`; handles the "install unknown apps" grant
+  (`canRequestPackageInstalls` → `ACTION_MANAGE_UNKNOWN_APP_SOURCES`, re-check on
+  return). Never silent.
+- New: `domain/update/{UpdateResolver,Sha256,SignatureMatch}` (pure, JVM-tested),
+  `network/UpdateManifestClient`, `update/{AppUpdater,UpdateFlowState}`,
+  `ui/update/{UpdateViewModel,UpdateSection}`, `res/xml/file_paths.xml`.
+  Retired `network/UpdateChecker` + `domain/update/AppVersion`
+  (`UpdateStatus`/`UpdateCheck`) + `UpdateCheckTest`.
+
+### Still needs the agent
+- Add the four `ANDROID_*` secrets, then tag **`v1.0.0`** for the first signed
+  release + first real `update.json`.
+- Uninstall the old `com.scopesms.autoreply` app once; install `1.0.0`.
+- Device pass: the install/permission/cert path can only be proven on a handset.
+
+---
+
+## 2026-07-16 — Round-2 device-testing fixes + real versioning 🟡 (feature branch)
+
+Eight items back from the agent's second real-device test. Fixed on a feature
+branch; all unit tests green locally (JDK 21 + the installed SDK — the local
+toolchain the previous session documented). Version set to **0.9.0** for this
+round; **1.0.0 is held until the agent confirms** everything works, exactly as
+the client asked.
+
+### The Messages-tab crash (#1) — restructured, not re-patched
+Round 1 applied the textbook `weight(1f)` fix for the "measured with an infinity
+maximum height" crash, which is correct on paper — yet the tab still force-closed
+on the agent's build (the build that also carries round-1's sample-send buttons,
+so it definitely had the fix). Rather than re-patch the same shape, the Messages
+(Templates) screen was rebuilt to the *exact* structure Home and Settings use —
+the only scrolling screens proven not to crash on the agent's handset: the TabRow
+is now a nested-`Scaffold` `topBar` and the body is a root-level `verticalScroll`
+Scaffold body, with **no `weight` in the middle** for a nested `Column` measure to
+get wrong. The data path was independently proven exception-free (render, segment
+count, cache lookup are all pure/total), so this was the layout or nothing.
+
+### The rest
+- **#2 test-send** — removed the "send a real price-list / purchase-confirmation
+  sample" buttons (a round-1 addition). They rendered from the live templates and
+  reliably tripped the gateway; the agent already previews those exact messages on
+  the Messages screen. The plain "Send test" is back to what it was.
+- **#3 keep-running instructions** — the OEM "Keep Scope SMS running" section is
+  now collapsible and **collapsed by default**, a tappable header expands it.
+- **#4 toggles → Settings, latest replies → Home** — the two auto-reply toggles
+  moved off Home into a new Settings "Automatic replies" section. Home now shows
+  the **latest 3 replies** (amount, who, status, time), tap-through to the full
+  log.
+- **#5 theme** — new Settings "Appearance" section: System / Light / Dark,
+  **System is the default**. Applied app-wide via `MainActivity` observing a new
+  `SettingsRepository.themePreference`.
+- **#6 activity filters** — the log's filter chips now sit on one horizontally
+  **scrolling** row instead of wrapping onto several lines.
+- **#7/#8 versioning, signing, updatable installs** — see below.
+
+### Versioning & signing (the big one)
+- **A permanent release keystore now exists.** Generated this session (RSA-2048,
+  10 000-day validity, alias `scope-sms`). It is the app's permanent identity;
+  whatever signs a build must sign every future update or the agent has to
+  uninstall (losing prices/templates/history). Handed to the agent as a base64
+  blob + password to load into four GitHub secrets — **never committed**.
+- **CI now signs the testing (debug) APK with that same release key** when the
+  secrets are present (`app/build.gradle.kts` debug `signingConfig`). Same
+  certificate as the eventual release build ⇒ testing builds and v1.0.0 update
+  over each other with no uninstall. One-time cost: the first signed build over
+  the old *unsigned* test build needs a single uninstall (the memory predicted
+  this).
+- **`build.yml` now publishes a rolling `testing` GitHub pre-release** with the
+  APK named `Scope-SMS-version-0.9.0.apk` — a direct, un-zipped, login-free
+  download, which is what the agent asked for (workflow artifacts are always
+  zipped). Gated on the signing secret being present; skips with a warning
+  otherwise. `release.yml` naming aligned to the same `Scope-SMS-version-X.Y.Z`
+  convention.
+
+### Still needs the agent
+- Install the new **0.9.0** testing build (one uninstall of the current app the
+  first time — data on the current debug build is not preserved across the key
+  switch), confirm the Messages tab opens and every fix behaves, **then** we tag
+  **v1.0.0**.
+- The four signing secrets must be added to GitHub before CI can publish the
+  signed testing release (steps handed over this session).
+
+---
+
 ## 2026-07-16 — Round-1 device-testing fixes ✅ (merged to main)
 
 Six issues came back from the agent's real-device test; all fixed, plus a batch

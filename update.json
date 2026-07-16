@@ -1,0 +1,9 @@
+{
+  "versionCode": 0,
+  "versionName": "0.0.0",
+  "apkUrl": "",
+  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "releaseNotes": "Placeholder. The first tagged release (v1.0.0) overwrites this with the real manifest automatically — see .github/workflows/release.yml.",
+  "required": false,
+  "minimumSupportedVersionCode": 1
+}

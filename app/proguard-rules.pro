@@ -28,7 +28,7 @@
 # the gateway receives JSON it doesn't understand.
 #
 # This breaks in release only. Every debug CI run stays green.
--keep @androidx.annotation.Keep class com.scopesms.autoreply.network.** { *; }
+-keep @androidx.annotation.Keep class com.tricreta.scopesms.network.** { *; }
 
 # Moshi's reflective adapter needs Kotlin metadata and the generic signatures to
 # reconstruct constructor parameters, nullability and default values.
@@ -54,5 +54,5 @@
 # --- Phase 5b — Room ---------------------------------------------------------
 # Room generates its implementations at compile time, but the entity fields are
 # read reflectively by the generated code's column mapping.
--keep class com.scopesms.autoreply.queue.OutboundJob { *; }
--keep class com.scopesms.autoreply.queue.OutboundJobStatus { *; }
+-keep class com.tricreta.scopesms.queue.OutboundJob { *; }
+-keep class com.tricreta.scopesms.queue.OutboundJobStatus { *; }
