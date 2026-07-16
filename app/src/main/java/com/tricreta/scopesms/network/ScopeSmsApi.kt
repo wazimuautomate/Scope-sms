@@ -56,21 +56,41 @@ internal data class SendSmsRequest(
 }
 
 /**
- * Documented success shape: `response-code: 200` with `messageid`.
+ * The gateway's response to a send.
  *
- * Note `response-code` is hyphenated on the wire — it is not a typo and it
- * cannot be a Kotlin identifier, hence the explicit @Json name.
+ * ## Two shapes, because the docs and the live gateway disagree
+ * The docs describe `response-code: 200` + `messageid`. The **live** gateway
+ * (verified against the real endpoint, 2026-07) returns neither — a success is:
+ * ```
+ * {"status":"success","statusCode":"200","reason":"success",
+ *  "mobile":"2547…","invalidMobile":"","transactionId":"…","msgId":"","requestTime":"…"}
+ * ```
+ * Note `statusCode` is a **string** and the id is `transactionId` (`msgId` is
+ * usually empty on the immediate response). Reading only the documented fields
+ * made every real send look like an unexpected response — which is retryable —
+ * so a delivered SMS was sent up to 5 times and then logged failed. Both shapes
+ * are modelled so [ScopeSmsGateway] can honour whichever the gateway sends.
  *
  * Every field is nullable: this models what the gateway *may* send back,
  * including error bodies, and a missing field must produce a typed failure
- * rather than a Moshi crash inside the worker.
+ * rather than a Moshi crash inside the worker. `response-code` is hyphenated on
+ * the wire — not a typo, and not a valid Kotlin identifier, hence the @Json name.
  */
 @Keep
 internal data class SendSmsResponse(
-    @param:Json(name = "response-code") val responseCode: Int?,
-    @param:Json(name = "messageid") val messageId: String?,
-    @param:Json(name = "mobile") val mobile: String?,
-    @param:Json(name = "networkid") val networkId: String?,
+    // --- What the live gateway actually returns ---
+    @param:Json(name = "status") val status: String? = null,
+    @param:Json(name = "statusCode") val statusCode: String? = null,
+    @param:Json(name = "reason") val reason: String? = null,
+    @param:Json(name = "transactionId") val transactionId: String? = null,
+    @param:Json(name = "msgId") val msgId: String? = null,
+    /** Non-blank names a recipient the gateway rejected (invalid number). */
+    @param:Json(name = "invalidMobile") val invalidMobile: String? = null,
+    @param:Json(name = "mobile") val mobile: String? = null,
+    // --- Documented shape, kept as a fallback ---
+    @param:Json(name = "response-code") val responseCode: Int? = null,
+    @param:Json(name = "messageid") val messageId: String? = null,
+    @param:Json(name = "networkid") val networkId: String? = null,
     /** Present on documented error bodies (invalid api key, insufficient balance, …). */
-    @param:Json(name = "message") val message: String?,
+    @param:Json(name = "message") val message: String? = null,
 )
