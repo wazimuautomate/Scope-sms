@@ -242,7 +242,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch --no-tags origin main
-          git checkout -B main FETCH_HEAD
+          # -f: the freshly generated update.json is an uncommitted working-tree
+          # change and would otherwise block the checkout when main's committed
+          # update.json differs from the tag's (it does once an earlier release has
+          # published one). It's already backed up in RUNNER_TEMP and restored on the
+          # next line, so discarding it here is safe.
+          git checkout -f -B main FETCH_HEAD
           cp "$RUNNER_TEMP/update.json" update.json
           git add update.json
           if git diff --cached --quiet; then
