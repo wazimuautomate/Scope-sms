@@ -1,9 +1,9 @@
 {
-  "versionCode": 5,
-  "versionName": "1.1.0",
-  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/479483881",
-  "sha256": "2570814a1b0b3e7c24c6dd78635b65b5c6285e94afd72c821a75e5437db1c0d0",
-  "releaseNotes": "Bundle categories + per-category price-list variables (v1.1.0) (#9)",
+  "versionCode": 6,
+  "versionName": "1.1.1",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/479682419",
+  "sha256": "0f28041d7953dce4b65aa10b511c3b4fd057e1e1eb73ebe01e62860b58b7a02b",
+  "releaseNotes": "release: 1.1.1 (versionCode 6) (#11)",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
