@@ -4,6 +4,52 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-16 — Gateway false-failure (5x duplicate sends) + activity select/copy/delete
+
+Branch `feature/gateway-fix-and-log-actions` → PR #10. Ships in the unreleased
+**v1.1.0** (versionCode 5, on `main` after PR #9). Two items from the agent's live
+testing.
+
+### 🔴🔴 The gateway's REAL success shape — the app was misreading it as failure
+The agent sent an unmatched-amount reply; it was **delivered** but logged FAILED
+("Unexpected gateway response: no messageid or success code — gave up after 5
+attempts"), and the SCOPE dashboard showed the message sent **5 times**.
+
+**Root-caused by calling the live endpoint** (with the agent's key, to their own
+number, authorised). The gateway's success response is **not** the documented
+`response-code`/`messageid`:
+```
+{"status":"success","statusCode":"200","reason":"success","mobile":"254…",
+ "invalidMobile":"","transactionId":"…","msgId":"","requestTime":"…"}
+```
+`statusCode` is a **string**, the id is **transactionId** (`msgId` is empty on the
+immediate response), and the HTTP `Content-Type` is `text/html` (body is JSON —
+Moshi parses it regardless). The app read only the documented fields → all null →
+`SendFailure.Unexpected`, which is **retryable** → the queue resent 5× (per-job
+retries don't dedupe) then logged FAILED. Every retry was a real, charged SMS.
+
+Fix: `SendSmsResponse` now models the live shape; `interpret()` treats
+`status=success` / `statusCode="200"` / any non-blank id (msgId|transactionId|
+messageid) as **delivered → Sent** (no retry, no duplicates), recording the id;
+`invalidMobile` non-blank → terminal `InvalidPhone`. The documented shape still
+works (kept for safety). +3 tests, incl. the exact captured body. **This affects
+the released v1.0.3** — it ships in the next release.
+
+### Activity log: select all / copy / delete
+Long-press a row to select; a contextual bar offers Select all, Copy (selected
+rows → clipboard as plain text, for pasting when a customer disputes a payment),
+and Delete (confirmed). DAO `deleteByIds` + repo `delete(ids)`; ViewModel selection
+state + `buildCopyText`; selectable rows (combinedClickable + highlight).
+
+### Gotcha — gh multi-account broke `git push`
+Two GitHub accounts are logged in (`wazimuautomate` = repo owner, `Wazimu90`). The
+active one had flipped to `Wazimu90` → `git push` failed "Repository not found"
+(the Windows `manager` credential helper served the wrong token). Fixed:
+`gh auth switch --user wazimuautomate` + a **repo-local** `credential.helper=
+!gh auth git-credential` so this repo always uses gh's active-account token.
+
+---
+
 ## 2026-07-16 — v1.0.3 crash root-caused (ICU regex) + bundle categories (1.1.0)
 
 Two phases in one session. The v1.0.x releases went out mid-session; the client

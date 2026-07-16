@@ -435,6 +435,38 @@ re-enabling backup.
 
 ## Gotchas discovered (save the next session the debugging)
 
+### 🔴🔴 The SCOPE gateway's REAL success response is NOT what the docs say
+Verified by calling the **live** endpoint (2026-07). A successful `POST /sendsms`
+returns, under HTTP 200 with `Content-Type: text/html` (the body is JSON anyway):
+```
+{"status":"success","statusCode":"200","reason":"success","mobile":"254…",
+ "invalidMobile":"","transactionId":"…","msgId":"","requestTime":"…"}
+```
+**Not** the documented `response-code`(int)/`messageid`. Key traps:
+- `statusCode` is a **string** `"200"`, not an int.
+- the trackable id is **`transactionId`** — `msgId` is **empty** on the immediate
+  response (filled later; the dashboard's "Messageid" is a different, later value).
+- success words are `status`/`reason` = `"success"`.
+
+The app modelled only the documented fields, so a real send parsed to all-null →
+`SendFailure.Unexpected` (**retryable**) → the queue resent it **5×** (per-job
+retries don't dedupe — the transactionCode guard only stops *redelivered SMS*, not
+retries of one job) and then logged FAILED. Every retry was a charged, delivered
+SMS. `ScopeSmsGateway.interpret` now treats status=success / statusCode="200" /
+any non-blank id as delivered→Sent, records `msgId ?: transactionId ?: messageid`,
+and maps a non-blank `invalidMobile` to terminal InvalidPhone. Documented shape
+kept as a fallback. **If the gateway wording changes again, re-capture with a live
+curl before editing — do not trust the docs.**
+
+### 🔴 gh multi-account silently breaks `git push` ("Repository not found")
+Two accounts are logged into gh (`wazimuautomate` owns the repo; `Wazimu90` also
+present). When the **active** account is `Wazimu90`, `git push` fails "Repository
+not found" — the Windows `manager` credential helper serves the wrong account's
+token, independent of gh's active account. Fix: `gh auth switch --user
+wazimuautomate`, and this repo is now pinned with a **repo-local**
+`credential.helper = !gh auth git-credential` (clears the inherited `manager`
+first). If pushes fail again, check `gh auth status --active` first.
+
 ### 🔴🔴 Android's ICU regex rejects a lone `}` — the JVM does NOT (THE Messages crash)
 **This was the Messages-tab crash all along** (round 4 found it; rounds 1–3 below
 were chasing the wrong thing). The token regex was `\{[a-zA-Z_][a-zA-Z0-9_]*}` —
