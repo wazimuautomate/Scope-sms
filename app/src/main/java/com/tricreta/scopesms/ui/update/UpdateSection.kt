@@ -217,6 +217,7 @@ private fun ErrorCard(reason: UpdateError, onRetry: () -> Unit) {
 @Composable
 private fun updateErrorMessage(error: UpdateError): String = when (error) {
     UpdateError.NoNetwork -> stringResource(R.string.settings_update_err_network)
+    UpdateError.NotConfigured -> stringResource(R.string.settings_update_err_not_configured)
     UpdateError.ManifestUnreadable -> stringResource(R.string.settings_update_err_manifest)
     UpdateError.InsufficientStorage -> stringResource(R.string.settings_update_err_storage)
     is UpdateError.DownloadFailed -> stringResource(R.string.settings_update_err_download)

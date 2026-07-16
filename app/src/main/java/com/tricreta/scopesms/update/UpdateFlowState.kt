@@ -28,6 +28,14 @@ sealed interface UpdateFlowState {
  */
 sealed interface UpdateError {
     data object NoNetwork : UpdateError
+
+    /**
+     * This build carries no read token, so it cannot reach the private release
+     * repo. Not a failure the agent can retry away — the message points them at
+     * the manual download instead. Shipped (CI-built) APKs never hit this; it is
+     * for local/dev builds and a clear signal if the token was never wired.
+     */
+    data object NotConfigured : UpdateError
     data object ManifestUnreadable : UpdateError
     data object InsufficientStorage : UpdateError
     data class DownloadFailed(val httpCode: Int?) : UpdateError

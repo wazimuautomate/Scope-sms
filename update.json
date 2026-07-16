@@ -1,9 +1,9 @@
 {
-  "versionCode": 2,
-  "versionName": "1.0.1",
-  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/479326365",
-  "sha256": "ed25d1ab8684efc4ee4ea77e175e9a6cee80c623d9cf9f15c6360635fffb9d9e",
-  "releaseNotes": "docs: record round-3 crash investigation + private-repo updater fix",
+  "versionCode": 3,
+  "versionName": "1.0.2",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/479382459",
+  "sha256": "2121a69117ab36624c57f14890fbea0faf856e6b8d3552586fad355a5892a1a5",
+  "releaseNotes": "fix(templates): remove the nested Scaffold + add an on-device crash catcher",
   "required": false,
   "minimumSupportedVersionCode": 1
 }

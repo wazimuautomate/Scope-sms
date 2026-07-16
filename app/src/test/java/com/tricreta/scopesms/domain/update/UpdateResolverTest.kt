@@ -74,8 +74,28 @@ class UpdateResolverTest {
     }
 
     @Test
-    fun `blank apk url is unknown, never up to date`() {
-        assertThat(resolve(apkUrl = "  ")).isEqualTo(UpdateResolution.Unknown)
+    fun `blank apk url on a NEWER version is unknown, never up to date`() {
+        // A newer versionCode is advertised (2 > 1) but there is nothing to
+        // download — that is a broken manifest, so Unknown, not a dead button.
+        assertThat(resolve(installed = 1, code = 2, apkUrl = "  ")).isEqualTo(UpdateResolution.Unknown)
+    }
+
+    @Test
+    fun `seeded placeholder manifest reads as up to date, not an error`() {
+        // The repo ships update.json as a versionCode 0 placeholder with a blank
+        // apkUrl and an all-zero sha until the first real release overwrites it.
+        // On any installed build (versionCode >= 1) that must be "you're on the
+        // latest version", NOT "update information is not available" — the check
+        // that nothing is newer comes before validating the (unused) install fields.
+        val placeholder = resolve(
+            installed = 1,
+            code = 0,
+            name = "0.0.0",
+            apkUrl = "",
+            sha = "0".repeat(64),
+            minSupported = 1,
+        )
+        assertThat(placeholder).isEqualTo(UpdateResolution.UpToDate)
     }
 
     @Test

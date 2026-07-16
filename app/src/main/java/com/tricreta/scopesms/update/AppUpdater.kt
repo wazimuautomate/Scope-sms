@@ -29,6 +29,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -64,7 +65,16 @@ class AppUpdater internal constructor(
     private val downloadClient: OkHttpClient,
     private val installedPackage: String,
     private val installedVersionCode: Long,
+    /** Whether a read token was baked in — false in builds without the secret. */
+    private val configured: Boolean,
 ) {
+
+    /**
+     * True when this build carries the read-only GitHub token the updater needs
+     * to reach the private release repo. False → the UI offers manual updates
+     * instead of failing with a network-looking error the agent can't act on.
+     */
+    fun isConfigured(): Boolean = configured
 
     /** Fetch + resolve. [UpdateResolution.Unknown] on any manifest problem. */
     suspend fun check(): UpdateResolution {
@@ -97,7 +107,17 @@ class AppUpdater internal constructor(
         val out = File(dir, "scope-sms-${target.versionCode}.apk")
 
         val response = try {
-            downloadClient.newCall(Request.Builder().url(target.apkUrl).build()).execute()
+            downloadClient.newCall(
+                Request.Builder()
+                    .url(target.apkUrl)
+                    // The private-repo release asset is fetched through its
+                    // api.github.com asset URL: octet-stream makes GitHub 302 to
+                    // the binary instead of returning the asset's JSON metadata.
+                    // The Bearer token rides only the api.github.com hop (network
+                    // interceptor) and is dropped before the redirect to storage.
+                    .header("Accept", "application/octet-stream")
+                    .build(),
+            ).execute()
         } catch (e: IOException) {
             emit(DownloadStep.Failed(UpdateError.NoNetwork))
             return@flow
@@ -221,27 +241,51 @@ class AppUpdater internal constructor(
     companion object {
         private const val TAG = "ScopeSms/Update"
         private const val DOWNLOAD_DIR = "updates"
+        private const val GITHUB_API_HOST = "api.github.com"
 
         fun create(
             context: Context,
             manifestUrl: String,
+            readToken: String,
             installedPackage: String,
             installedVersionCode: Long,
         ): AppUpdater {
             val appContext = context.applicationContext
+
+            // Attaches the read-only GitHub token, but ONLY on the api.github.com
+            // hop. As a *network* interceptor it re-runs for every redirect, and
+            // GitHub 302s an asset download to a pre-signed storage host — sending
+            // Authorization there both leaks the token and is rejected ("only one
+            // auth mechanism allowed"), so it must be scoped by host rather than
+            // set once on the request. An empty token (a build without the secret)
+            // adds nothing: the fetch 404s and the updater reports "not
+            // configured" instead of pretending to work.
+            val githubAuth = Interceptor { chain ->
+                val request = chain.request()
+                val authed = if (readToken.isNotEmpty() && request.url.host == GITHUB_API_HOST) {
+                    request.newBuilder().header("Authorization", "Bearer $readToken").build()
+                } else {
+                    request
+                }
+                chain.proceed(authed)
+            }
+
             // Manifest: short timeouts — nobody waits long on a small JSON.
             val manifestHttp = OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
+                .addNetworkInterceptor(githubAuth)
                 .build()
             // APK: long per-chunk read timeout, NO call timeout — a multi-MB
             // download on rural 2G must not be killed wholesale. Redirects on for
-            // the GitHub release-asset → objects.githubusercontent.com hop.
+            // the api.github.com asset → storage-host hop; the interceptor drops
+            // the token on that hop.
             val downloadHttp = OkHttpClient.Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(60, TimeUnit.SECONDS)
                 .followRedirects(true)
                 .followSslRedirects(true)
+                .addNetworkInterceptor(githubAuth)
                 .build()
             return AppUpdater(
                 appContext = appContext,
@@ -249,6 +293,7 @@ class AppUpdater internal constructor(
                 downloadClient = downloadHttp,
                 installedPackage = installedPackage,
                 installedVersionCode = installedVersionCode,
+                configured = readToken.isNotBlank(),
             )
         }
     }

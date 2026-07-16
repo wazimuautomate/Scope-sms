@@ -135,6 +135,13 @@ androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 
+# Compose UI test — used only by the JVM/Robolectric unit-test source set to
+# compose and lay out screens off-device (see TemplatesScreenTest). ui-test-junit4
+# brings createComposeRule(); ui-test-manifest supplies the empty host activity
+# that rule launches, and is a debug-only dependency so it never ships in the APK.
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+
 # Phase 7 — the Icons.Default.* set used by the bottom bar and status cards.
 # Material3 does NOT bring this transitively (a real surprise found by the first
 # local compile: every `Icons.Default.Home` was an unresolved reference).

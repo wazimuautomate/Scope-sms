@@ -15,7 +15,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -42,57 +41,88 @@ import com.tricreta.scopesms.domain.templates.TemplateVariable
  * different things to different people, and BUILD-PLAN Phase 7 asks for them to
  * be visibly separate so the agent can't edit one thinking it's the other.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TemplatesScreen(
     modifier: Modifier = Modifier,
     viewModel: TemplatesViewModel = viewModel(factory = TemplatesViewModel.Factory),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Stateless body, so a Robolectric Compose test can drive the *real*
+    // measure/layout pass with fabricated data (long price lists, non-default
+    // bodies, invalid tokens) that the empty-default preview never exercises —
+    // the data the reported Messages-tab crash was suspected to need. That test
+    // (TemplatesScreenTest) renders every such case without throwing, which is the
+    // proof this screen no longer force-closes that earlier rounds never had.
+    TemplatesContent(
+        state = state,
+        modifier = modifier,
+        onEdit = viewModel::edit,
+        onAppendVariable = viewModel::appendVariable,
+        onSave = viewModel::save,
+        onDiscard = viewModel::discard,
+        onReset = viewModel::resetToDefault,
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun TemplatesContent(
+    state: TemplatesUiState,
+    modifier: Modifier = Modifier,
+    onEdit: (TemplateType, String) -> Unit = { _, _ -> },
+    onAppendVariable: (TemplateType, TemplateVariable) -> Unit = { _, _ -> },
+    onSave: (TemplateType) -> Unit = {},
+    onDiscard: (TemplateType) -> Unit = {},
+    onReset: (TemplateType) -> Unit = {},
+) {
     var selectedTab by rememberSaveable { mutableStateOf(0) }
-    val type = TemplateType.entries[selectedTab]
+    // Coerce before indexing: selectedTab is restored from rememberSaveable, which
+    // outlives the process and app updates. An index saved by a build with more
+    // tabs — or any corrupted saved value — would otherwise throw
+    // IndexOutOfBoundsException here and force-close the screen the instant it
+    // opens, the exact failure this screen has been reported for. entries is never
+    // empty, so lastIndex is always valid.
+    val safeTab = selectedTab.coerceIn(0, TemplateType.entries.lastIndex)
+    val type = TemplateType.entries[safeTab]
     val editor = state.forType(type)
 
-    // The TabRow is the topBar of a nested Scaffold, and the body scrolls as the
-    // Scaffold's content directly. This is deliberately the *same* shape as Home
-    // and Settings — the two screens that scroll without crashing on the agent's
-    // device — not the earlier `Column { TabRow; Column(weight(1f).verticalScroll) }`.
-    //
-    // That earlier form is the textbook `weight(1f)` fix for the "measured with an
-    // infinity maximum height" crash and is correct on paper, but it kept
-    // force-closing this one screen in the field while every root-level-scroll
-    // screen stayed fine. So this drops `weight` entirely: a verticalScroll placed
-    // as a Scaffold body gets bounded height the same way Home's does, with no
-    // nested-Column measurement in the middle to get it wrong. Pinned tabs, a
-    // scrolling body — same UX, a structure that is proven on the actual handset.
-    Scaffold(
-        modifier = modifier,
-        topBar = {
-            TabRow(selectedTabIndex = selectedTab) {
-                TemplateType.entries.forEachIndexed { index, entry ->
-                    Tab(
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        text = {
-                            Text(
-                                stringResource(
-                                    when (entry) {
-                                        TemplateType.UNMATCHED -> R.string.tpl_tab_unmatched
-                                        TemplateType.MATCHED -> R.string.tpl_tab_matched
-                                    },
-                                ),
-                            )
-                        },
-                    )
-                }
+    // NO nested Scaffold — this is now the EXACT shape Home and Settings use: a
+    // single Column with verticalScroll on the passed modifier. Those are the
+    // screens that never force-close; the nested Scaffold here (a Scaffold inside
+    // the app's outer Scaffold) was Templates' one structural outlier, and it still
+    // crashed on the agent's real device even though a Robolectric measure/layout
+    // pass could not reproduce it. So it is dropped entirely: the TabRow is simply
+    // the first item inside the one scroll. One Scaffold and one scroll in the whole
+    // subtree — nothing nested for a real-device measure pass to get wrong. Two tabs
+    // of short content that scroll as a unit is fine UX.
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        TabRow(selectedTabIndex = safeTab) {
+            TemplateType.entries.forEachIndexed { index, entry ->
+                Tab(
+                    selected = safeTab == index,
+                    onClick = { selectedTab = index },
+                    text = {
+                        Text(
+                            stringResource(
+                                when (entry) {
+                                    TemplateType.UNMATCHED -> R.string.tpl_tab_unmatched
+                                    TemplateType.MATCHED -> R.string.tpl_tab_matched
+                                },
+                            ),
+                        )
+                    },
+                )
             }
-        },
-    ) { innerPadding ->
+        }
+
         Column(
             modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .fillMaxWidth()
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -109,7 +139,7 @@ fun TemplatesScreen(
 
             OutlinedTextField(
                 value = editor.body,
-                onValueChange = { viewModel.edit(type, it) },
+                onValueChange = { onEdit(type, it) },
                 label = { Text(stringResource(R.string.tpl_body_label)) },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 4,
@@ -123,7 +153,7 @@ fun TemplatesScreen(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 editor.allowedVariables.forEach { variable ->
                     AssistChip(
-                        onClick = { viewModel.appendVariable(type, variable) },
+                        onClick = { onAppendVariable(type, variable) },
                         label = { Text(variable.token) },
                     )
                 }
@@ -134,17 +164,17 @@ fun TemplatesScreen(
             PreviewCard(editor)
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { viewModel.save(type) }, enabled = editor.canSave) {
+                TextButton(onClick = { onSave(type) }, enabled = editor.canSave) {
                     Text(stringResource(R.string.save))
                 }
                 TextButton(
-                    onClick = { viewModel.discard(type) },
+                    onClick = { onDiscard(type) },
                     enabled = editor.hasUnsavedChanges,
                 ) {
                     Text(stringResource(R.string.cancel))
                 }
                 TextButton(
-                    onClick = { viewModel.resetToDefault(type) },
+                    onClick = { onReset(type) },
                     // Only offered when it would do something.
                     enabled = !editor.isDefault || editor.hasUnsavedChanges,
                 ) {

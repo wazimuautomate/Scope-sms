@@ -40,6 +40,57 @@ A client-driven pivot to a permanent, self-updating private distribution. This
 section overrides the pre-pivot notes below about `com.scopesms.autoreply`,
 `0.9.0`, the `SIGNING_*` secrets, and the rolling "testing" pre-release.
 
+### 🔴 UPDATE (round 3) — the in-app updater now works on the PRIVATE repo (token + API)
+The whole updater below was **broken in v1.0.0**: it read `update.json` from
+`raw.githubusercontent.com` **unauthenticated**, and a private repo returns **404**
+there (raw does not accept a PAT at all). Every check surfaced as
+`ManifestUnreadable` → "Update information is not available right now" — the exact
+error the agent reported. Fixed per the client's choice, "embed a read-only token":
+
+- **Manifest** now via the GitHub **contents API**
+  (`api.github.com/repos/.../contents/update.json?ref=main`,
+  `Accept: application/vnd.github.raw` so the body is the file). `BuildConfig
+  .UPDATE_MANIFEST_URL` changed accordingly.
+- **Token** is host-scoped by an OkHttp **network interceptor** in
+  `AppUpdater.create` — attaches `Authorization: Bearer` only when
+  `request.url.host == api.github.com`. As a *network* (not application)
+  interceptor it re-runs per redirect, and GitHub 302s an asset download to a
+  pre-signed storage host: sending the token there both leaks it and trips "only
+  one auth mechanism allowed" (400). Host-scoping drops it on that hop. The
+  redirect follow-up is built from the original (token-less) request, so nothing
+  leaks. Load-bearing; don't "simplify" it to a header on the request.
+- **APK download** must use the asset's **api.github.com asset URL** +
+  `Accept: application/octet-stream`. The browser `releases/download/...` URL is a
+  web endpoint a PAT can't authenticate → 404 on a private repo. `release.yml`
+  resolves the asset id post-upload (`gh api .../releases/tags/<tag>`) and writes
+  that URL into update.json — traded the old deterministic-URL simplicity for a
+  private repo that downloads.
+- **Token source:** `UPDATE_READ_TOKEN` secret → `buildConfigField` (env/Gradle
+  property), **never committed** (constraint 7). Empty in a build without the
+  secret → `AppUpdater.isConfigured()` false → new `UpdateError.NotConfigured`
+  ("automatic updates aren't set up… install manually"), not a scary error. CI:
+  the secret is wired into both `release.yml` (assembleRelease) and `build.yml`
+  (assembleDebug). Secret added by the agent 14:39.
+- **`UpdateResolver` reordered:** "nothing newer → UpToDate" is decided **before**
+  validating url/sha/name, so the seeded placeholder (versionCode 0, blank apkUrl)
+  and any same-version manifest read as "you have the latest version", not an
+  error. Only a genuinely *newer* versionCode with a bad/blank install field is
+  `Unknown`.
+
+**Token caveat the client accepted:** a fine-grained PAT scoped to Contents:Read
+still reads the *whole* repo (GitHub can't scope to one file), and it ships inside
+the APK (extractable). Cleaner long-term option if that ever bites: a separate
+**public** repo holding only APK + update.json (no source), no token at all.
+
+### 🔴 v1.0.0 is PUBLISHED — this fix is v1.0.1 / versionCode 2
+A `v1.0.0` release (versionCode 1) was cut earlier on 2026-07-16 (release run
+29501071679); its `update.json` sits on `main` (commit 49d9787) with the old
+browser-download apkUrl. `versionCode` only ever increases and `release.yml` fails
+a tag whose versionCode isn't strictly greater than `main:update.json`'s — so this
+crash+updater fix is **1.0.1 / versionCode 2**. Because v1.0.0's own updater is
+broken, the agent gets 1.0.1 by a **manual** install (from the Release page while
+logged in, or the CI debug artifact); from 1.0.1 onward, in-app updates work.
+
 ### App identity is now permanent — `com.tricreta.scopesms`
 `applicationId` + `namespace`. The old `com.scopesms.autoreply` is retired.
 Because it's a **new package**, the agent does **one** uninstall of the old app,
@@ -384,27 +435,47 @@ re-enabling backup.
 
 ## Gotchas discovered (save the next session the debugging)
 
-### 🔴 The Messages tab crashed TWICE — `weight(1f)` was correct but not enough
-Round 1 hit "Vertically scrollable component was measured with an infinity
-maximum height" on the Messages (Templates) tab and fixed it the textbook way:
-give the nested scroll `Modifier.weight(1f)` so its parent `Column` hands it a
-finite height. That fix is genuinely correct — a Column measures a *non-weighted*
-child with `maxHeight = Infinity`, and `weight` (fill=true) replaces that with the
-finite leftover.
+### 🔴 The Messages tab crash — round 3: it is NOT a code-level crash on current code
+Reported crashing "since build 1"; "fixed" twice by changing *layout* (round-1
+`weight(1f)`, round-2 nested `Scaffold`) — both still crashed on the agent's phone.
+**Two different layouts failing identically is the tell: the cause was never
+layout.** Round 3 stopped guessing and got evidence.
 
-**It still force-closed on the agent's round-2 build** (which carried round-1's
-sample-send buttons, so the fix was definitely in it). Rather than keep betting on
-`weight`, round 2 rebuilt Templates to the *exact* shape of Home and Settings —
-the only scrolling screens that never crashed on this handset: a **nested
-`Scaffold`** with the `TabRow` as `topBar` and the body as a **root-level
-`verticalScroll` Scaffold body**, no `weight`, no intermediate `Column` measure.
+A `TemplatesScreenTest` (Robolectric Compose, testDebug source set, `@Config sdk=30`)
+now drives Compose's **real measure/layout pass off-device** over every data path
+the crash was suspected to need — 5-rule `{bundle_list}`, non-default bodies, an
+invalid-token error card, a multi-segment body, tab switching, live typing, and the
+**faithful nested-Scaffold-inside-Scaffold** arrangement `MainScaffold` uses. **6
+tests green: the current code does not crash.** This is the regression test the
+screen never had. Static analysis agrees — the ViewModel flow, `TemplateEngine`,
+`SmsSegments`, the `tpl_segments` format and the render path are all total, and the
+nested Scaffold's content slot is measured with **finite** constraints, so there is
+no infinity-max-height.
 
-Lesson for the next scroll bug: prefer the root-of-a-Scaffold scroll shape that is
-already proven on the device over any nested-`Column` arrangement, however
-theoretically sound. Activity still uses `LazyColumn(weight(1f))` — left alone
-because it opens fine, but note we have **no on-device proof** of that path since
-an empty log early-returns before the LazyColumn composes. If Activity ever
-crashes once it has data, this is the first place to look.
+Shipped instead of a third layout rewrite:
+- `TemplatesScreen` = thin ViewModel wrapper over a stateless `TemplatesContent`
+  (identical behaviour), so the screen is testable with fabricated state.
+- **Hardening:** `selectedTab.coerceIn(0, TemplateType.entries.lastIndex)` before
+  `entries[...]` — a stale/corrupt `rememberSaveable` index can't
+  `IndexOutOfBounds` and force-close on open. Plausible-but-unconfirmed as the real
+  cause (saved instance state does not survive a reinstall, so it doesn't cleanly
+  explain "every build"); kept as cheap insurance.
+
+**CORRECTION to a prior claim in this file:** the round-2 note said Templates was
+rebuilt to "the *exact* shape of Home and Settings". **False** — Home and Settings
+are a plain `Column` + `verticalScroll` on the passed modifier with **no** inner
+Scaffold; Templates is the lone screen with a nested Scaffold. That wrong note
+probably misdirected rounds 1–2. Don't trust it; trust `TemplatesScreenTest`.
+
+**Most likely the user is on an older APK** — the one-time uninstall for the
+`com.scopesms.autoreply → com.tricreta.scopesms` package switch may never have been
+done, so they run pre-fix code. The only alternative the evidence allows is an
+**OEM-runtime** crash Robolectric can't see (Transsion/Tecno, Android 11). Needs a
+device to settle. If 1.0.1 (post-uninstall) still crashes → add an on-device crash
+catcher / pull a logcat; 1.0.1's working updater makes that iteration one-tap.
+
+Activity still uses `LazyColumn(weight(1f))` — opens fine, still no on-device proof
+of the with-data path (empty log early-returns before it composes).
 
 ### 🔴 There IS a working local toolchain now — CI is no longer the only compiler
 This changes the project's central assumption (CLAUDE.md constraint 8) and is the

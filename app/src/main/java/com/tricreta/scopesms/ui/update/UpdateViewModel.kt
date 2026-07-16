@@ -44,6 +44,13 @@ class UpdateViewModel(
     fun check() {
         val current = _state.value
         if (current is UpdateFlowState.Checking || current is UpdateFlowState.Downloading) return
+        // No baked-in token → can't reach the private release repo. Say so plainly
+        // (and point at manual install) instead of firing a fetch that 404s and
+        // surfaces as a network-looking error the agent can't act on.
+        if (!updater.isConfigured()) {
+            _state.value = UpdateFlowState.Error(UpdateError.NotConfigured)
+            return
+        }
         _state.value = UpdateFlowState.Checking
         viewModelScope.launch {
             _state.value = when (val resolution = updater.check()) {
