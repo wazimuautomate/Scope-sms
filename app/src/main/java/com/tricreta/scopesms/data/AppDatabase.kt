@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.tricreta.scopesms.data.log.ActivityLogDao
 import com.tricreta.scopesms.data.log.ActivityLogEntity
 import com.tricreta.scopesms.data.rules.PricingRuleDao
@@ -84,9 +86,25 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun activityLogDao(): ActivityLogDao
 
     companion object {
-        const val DB_VERSION = 1
+        const val DB_VERSION = 2
 
         private const val DB_NAME = "scope-sms.db"
+
+        /**
+         * v1 → v2: adds the bundle [category] column (Phase: bundle categories).
+         *
+         * A plain nullable `ADD COLUMN` — no default. Existing bundle prices are
+         * preserved untouched and left NULL, which the app reads as
+         * [com.tricreta.scopesms.domain.rules.BundleCategory.DEFAULT]. Data-safe:
+         * nothing is dropped or rewritten, which is the whole reason
+         * `fallbackToDestructiveMigration()` is absent (see the class doc — the
+         * agent runs this on their live business).
+         */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pricing_rules ADD COLUMN category TEXT")
+            }
+        }
 
         @Volatile
         private var instance: AppDatabase? = null
@@ -106,6 +124,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, DB_NAME)
+                .addMigrations(MIGRATION_1_2)
                 // No fallbackToDestructiveMigration() — see the class doc.
                 .build()
     }

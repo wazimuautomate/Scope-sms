@@ -1,6 +1,7 @@
 package com.tricreta.scopesms.domain.templates
 
 import com.tricreta.scopesms.domain.money.KshAmount
+import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PricingRule
 
 /** What's wrong with a template body, for the editor to show before saving. */
@@ -103,6 +104,9 @@ object TemplateEngine {
         TemplateVariable.AMOUNT to amount.format(),
         TemplateVariable.PHONE to phone,
         TemplateVariable.BUNDLE_LIST to BundleListRenderer.render(activeRules),
+        TemplateVariable.DATA_OFFERS to BundleListRenderer.render(activeRules, BundleCategory.DATA),
+        TemplateVariable.MINUTES_OFFERS to BundleListRenderer.render(activeRules, BundleCategory.MINUTES),
+        TemplateVariable.SMS_OFFERS to BundleListRenderer.render(activeRules, BundleCategory.SMS),
     )
 
     /** Values for the matched flow: confirm what [matchedRule] says they bought. */
@@ -137,21 +141,34 @@ object TemplateEngine {
         .replace(BLANK_LINE_RUN, "\n\n")
         .trim()
 
-    private val TOKEN_PATTERN = Regex("""\{[a-zA-Z_][a-zA-Z0-9_]*}""")
+    // The closing brace MUST stay escaped as `\}`. Android's ICU-backed regex
+    // engine (Samsung/Android 14+) throws PatternSyntaxException on a lone
+    // unescaped `}`, which crashed this class' static init the instant a screen
+    // touched it; the desktop JVM (Robolectric/CI) tolerates it, so no unit test
+    // catches a regression here. See v1.0.3.
+    private val TOKEN_PATTERN = Regex("""\{[a-zA-Z_][a-zA-Z0-9_]*\}""")
     private val HORIZONTAL_RUN = Regex("""[ \t]{2,}""")
     private val SPACE_BEFORE_PUNCTUATION = Regex(""" +([,.!?;:])""")
     private val BLANK_LINE_RUN = Regex("""\n{3,}""")
 }
 
 /**
- * Renders the active price list for `{bundle_list}`.
+ * Renders the active price list for `{bundle_list}` and the per-category
+ * `{data_offers}` / `{minutes_offers}` / `{sms_offers}` variables.
  *
  * Cheapest first — the agent's customers are choosing on price, and it keeps
  * the same amount in the same place every time.
  */
 object BundleListRenderer {
 
-    fun render(activeRules: List<PricingRule>): String = activeRules
+    /**
+     * @param category null renders every active bundle (`{bundle_list}`); a
+     *   category renders only that kind. An empty result (no active bundles in
+     *   that category) is a blank string, which [TemplateEngine.render] tidies
+     *   into a clean gap rather than a dangling label.
+     */
+    fun render(activeRules: List<PricingRule>, category: BundleCategory? = null): String = activeRules
+        .filter { category == null || it.category == category }
         .sortedBy { it.amount }
         .joinToString("\n") { "Ksh ${it.amount.format()} - ${it.bundleDescription}" }
 }

@@ -43,7 +43,12 @@ object PriceListCodec {
     private const val AMOUNT_KEY = "amount"
     private const val BUNDLE_KEY = "bundle"
     private const val ACTIVE_KEY = "active"
+    private const val CATEGORY_KEY = "category"
 
+    // Stays 1 even though `category` was added: it is an *optional* field. An
+    // older app ignores it and still imports the prices; this app defaults a file
+    // without it to BundleCategory.DEFAULT. Bumping the version would make the old
+    // app reject the file outright — the worse outcome for the agent's data.
     private const val CURRENT_VERSION = 1
 
     /**
@@ -64,7 +69,8 @@ object PriceListCodec {
                 JSONObject()
                     .put(AMOUNT_KEY, rule.amount.shillings)
                     .put(BUNDLE_KEY, rule.bundleDescription)
-                    .put(ACTIVE_KEY, rule.isActive),
+                    .put(ACTIVE_KEY, rule.isActive)
+                    .put(CATEGORY_KEY, rule.category.name),
             )
         }
 
@@ -101,6 +107,7 @@ object PriceListCodec {
         val amount: KshAmount,
         val bundleDescription: String,
         val isActive: Boolean,
+        val category: BundleCategory,
     )
 
     /**
@@ -142,6 +149,10 @@ object PriceListCodec {
                         // Absent → active. An older/hand-written file may omit it,
                         // and "sell this bundle" is the safe assumption.
                         isActive = row.optBoolean(ACTIVE_KEY, true),
+                        // Absent/unknown → DEFAULT (older files, hand edits).
+                        category = BundleCategory.fromName(
+                            row.optString(CATEGORY_KEY).ifBlank { null },
+                        ),
                     ),
                 )
             }

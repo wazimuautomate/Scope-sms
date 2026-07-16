@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.tricreta.scopesms.di.AppContainer
 import com.tricreta.scopesms.domain.money.KshAmount
+import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PriceListCodec
 import com.tricreta.scopesms.domain.rules.PricingRule
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,6 +66,7 @@ data class RuleDraft(
     val amountText: String = "",
     val description: String = "",
     val isActive: Boolean = true,
+    val category: BundleCategory = BundleCategory.DEFAULT,
     val error: RuleInputError? = null,
 ) {
     val isNew: Boolean get() = id == 0L
@@ -103,6 +105,7 @@ class RulesViewModel(
             amountText = rule.amount.shillings.toString(),
             description = rule.bundleDescription,
             isActive = rule.isActive,
+            category = rule.category,
         )
     }
 
@@ -110,11 +113,16 @@ class RulesViewModel(
         editing.value = null
     }
 
-    fun updateDraft(amountText: String? = null, description: String? = null) {
+    fun updateDraft(
+        amountText: String? = null,
+        description: String? = null,
+        category: BundleCategory? = null,
+    ) {
         editing.update { draft ->
             draft?.copy(
                 amountText = amountText ?: draft.amountText,
                 description = description ?: draft.description,
+                category = category ?: draft.category,
                 // Clear as they type: an error that outlives the thing it was
                 // complaining about is just noise.
                 error = null,
@@ -155,6 +163,7 @@ class RulesViewModel(
                     amount = amount,
                     bundleDescription = draft.description.trim(),
                     isActive = draft.isActive,
+                    category = draft.category,
                 ),
             )
             editing.value = null
@@ -223,6 +232,7 @@ class RulesViewModel(
                             amount = row.amount,
                             bundleDescription = row.bundleDescription,
                             isActive = row.isActive,
+                            category = row.category,
                         ),
                     )
                     added++

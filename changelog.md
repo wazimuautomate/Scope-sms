@@ -4,6 +4,60 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-16 — v1.0.3 crash root-caused (ICU regex) + bundle categories (1.1.0)
+
+Two phases in one session. The v1.0.x releases went out mid-session; the client
+confirmed the Messages tab works. Then a feature add.
+
+### The Messages-tab crash — actually root-caused this time
+The on-device CrashReporter added in v1.0.2 paid off immediately: the agent's
+Samsung/Android 14 handset produced the real stack trace —
+`PatternSyntaxException: Syntax error … near index 25` on `\{[a-zA-Z_][a-zA-Z0-9_]*}`.
+The token regex escaped the opening `{` but **left the closing `}` bare**.
+Android's ICU-backed `java.util.regex` rejects a lone `}`; the desktop JVM
+(Robolectric/CI) tolerates it as a literal — so 300 green tests never saw it, and
+two layout rewrites never could. Fixed by escaping the brace (`\}`) in both
+`TemplateEngine` and `TemplateVariable`. Shipped as **v1.0.3**. **It was never a
+layout bug.**
+
+### 🔴 PROCESS GOTCHA — main regressed behind a release
+`v1.0.3` was tagged on a branch commit (`9a464df`) whose fix **was never merged to
+main** (PR #8 squashed an earlier branch state, then the regex fix landed only on
+the tag). Result: the *released* v1.0.3 APK is correct, but `main` sat at the
+buggy v1.0.2 regex with `update.json` claiming v1.0.3. **Lesson: cut releases from
+main after merge, or verify the tag's fix is on main.** The 1.1.0 feature branch
+re-applies the regex escape so this baseline isn't the crashing one — that restores
+it to main via the feature PR.
+
+### Bundle categories (feature) → 1.1.0 / versionCode 5
+Client asked to categorise bundles (Data/Minutes/SMS) and quote one category at a
+time. Chosen design (asked): **per-category template variables**.
+- `BundleCategory` (DATA/MINUTES/SMS, DEFAULT=DATA, safe `fromName`);
+  `PricingRule.category`. `BundleListRenderer` gains an optional category filter;
+  `unmatchedValues` adds `{data_offers}`/`{minutes_offers}`/`{sms_offers}` (UNMATCHED
+  flow only). `{bundle_list}` still lists everything.
+- **Room v1→v2 migration** — first real migration. Nullable `category` column via a
+  plain `ADD COLUMN category TEXT` (no default), which is exactly what a nullable,
+  no-`@ColumnInfo`-default field produces, so runtime schema validation matches
+  without the NOT-NULL-default quoting subtleties. Old rows → NULL → read as DEFAULT.
+  Data-preserving; `fallbackToDestructiveMigration` stays absent.
+- Export/import: `category` optional, codec **stays version 1** (older apps can
+  still import); missing/unknown → DEFAULT.
+- Rules editor: Data/Minutes/SMS segmented picker; each rule row shows its category.
+- Templates action row: Save/Cancel/Reset are now real centered **Buttons** that
+  grey when disabled (was TextButtons), per the client.
+- Tests: per-category rendering + variable scoping; codec category round-trip,
+  old-file default, unknown-name fallback.
+
+### Still to do this session
+- Merge the feature PR to main + cut **v1.1.0** (both reserved for a human by the
+  safety gate; the token/permission file was never actually added).
+- Commit the CI-generated **`app/schemas/…/2.json`** (from the room-schemas
+  artifact) for the migration record; add an instrumented MigrationTestHelper test
+  once it's in.
+
+---
+
 ## 2026-07-16 — Messages-tab crash (round 3) + private-repo updater fix (feature branch)
 
 Branch `fix/crash-and-private-updater` (integrates the delegated crash-fix branch

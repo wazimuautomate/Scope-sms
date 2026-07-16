@@ -77,6 +77,10 @@
     <string name="rules_amount_help">Whole shillings only, e.g. 50</string>
     <string name="rules_description_label">What it buys</string>
     <string name="rules_description_help">e.g. 2GB Weekly</string>
+    <string name="rules_category_label">Category</string>
+    <string name="category_data">Data</string>
+    <string name="category_minutes">Minutes</string>
+    <string name="category_sms">SMS</string>
     <string name="rules_duplicate_badge">Another bundle has this price</string>
     <string name="rules_duplicate_warning">%1$d price(s) are used by more than one bundle. Only the newest is quoted to customers.</string>
 

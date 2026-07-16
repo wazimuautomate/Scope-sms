@@ -87,5 +87,36 @@ class PriceListCodecTest {
         assertThat(loaded.map { it.bundleDescription }).containsExactly("1GB Daily", "5GB Monthly")
         // A row that omits "active" defaults to active — "sell it" is the safe read.
         assertThat(loaded.all { it.isActive }).isTrue()
+        // And a row with no category defaults to the default, never crashes.
+        assertThat(loaded.all { it.category == BundleCategory.DEFAULT }).isTrue()
+    }
+
+    @Test
+    fun `category round-trips through export and import`() {
+        val withCategories = listOf(
+            PricingRule(1, KshAmount.ofShillings(20), "1GB Daily", category = BundleCategory.DATA),
+            PricingRule(2, KshAmount.ofShillings(30), "50 mins", category = BundleCategory.MINUTES),
+            PricingRule(3, KshAmount.ofShillings(10), "200 SMS", category = BundleCategory.SMS),
+        )
+        val loaded = (
+            PriceListCodec.import(PriceListCodec.export(withCategories, now = 0))
+                as PriceListCodec.ImportResult.Loaded
+            ).rules
+
+        assertThat(loaded.map { it.category })
+            .containsExactly(BundleCategory.DATA, BundleCategory.MINUTES, BundleCategory.SMS)
+            .inOrder()
+    }
+
+    @Test
+    fun `an unknown category name degrades to the default rather than throwing`() {
+        val json = """
+            {
+              "scope_sms_prices": 1,
+              "prices": [ { "amount": 20, "bundle": "1GB", "category": "TELEPORT" } ]
+            }
+        """.trimIndent()
+        val loaded = (PriceListCodec.import(json) as PriceListCodec.ImportResult.Loaded).rules
+        assertThat(loaded[0].category).isEqualTo(BundleCategory.DEFAULT)
     }
 }

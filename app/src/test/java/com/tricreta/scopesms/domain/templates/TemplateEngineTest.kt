@@ -2,6 +2,7 @@ package com.tricreta.scopesms.domain.templates
 
 import com.google.common.truth.Truth.assertThat
 import com.tricreta.scopesms.domain.money.KshAmount
+import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PricingRule
 import org.junit.Test
 
@@ -58,6 +59,70 @@ class TemplateEngineTest {
         )
 
         assertThat(rendered).isEqualTo("Ksh 20 - 1GB\nKsh 50 - 2GB\nKsh 100 - 5GB")
+    }
+
+    // --- Per-category offers ------------------------------------------------
+
+    private fun rule(id: Long, shillings: Long, description: String, category: BundleCategory) =
+        PricingRule(id, KshAmount.ofShillings(shillings), description, category = category)
+
+    private val mixedList = listOf(
+        rule(1, 50, "2GB Weekly", BundleCategory.DATA),
+        rule(2, 20, "1GB Daily", BundleCategory.DATA),
+        rule(3, 30, "50 mins", BundleCategory.MINUTES),
+        rule(4, 10, "200 SMS", BundleCategory.SMS),
+    )
+
+    @Test
+    fun `data_offers lists only data bundles, cheapest first`() {
+        val rendered = TemplateEngine.render(
+            "{data_offers}",
+            TemplateEngine.unmatchedValues("A", KshAmount.ofShillings(35), "0700", mixedList),
+        )
+        assertThat(rendered).isEqualTo("Ksh 20 - 1GB Daily\nKsh 50 - 2GB Weekly")
+    }
+
+    @Test
+    fun `minutes_offers and sms_offers each list only their own category`() {
+        val values = TemplateEngine.unmatchedValues("A", KshAmount.ofShillings(35), "0700", mixedList)
+        assertThat(TemplateEngine.render("{minutes_offers}", values)).isEqualTo("Ksh 30 - 50 mins")
+        assertThat(TemplateEngine.render("{sms_offers}", values)).isEqualTo("Ksh 10 - 200 SMS")
+    }
+
+    @Test
+    fun `bundle_list still lists every category`() {
+        val rendered = TemplateEngine.render(
+            "{bundle_list}",
+            TemplateEngine.unmatchedValues("A", KshAmount.ofShillings(35), "0700", mixedList),
+        )
+        // Cheapest first across all categories.
+        assertThat(rendered).isEqualTo(
+            "Ksh 10 - 200 SMS\nKsh 20 - 1GB Daily\nKsh 30 - 50 mins\nKsh 50 - 2GB Weekly",
+        )
+    }
+
+    @Test
+    fun `a category with no bundles renders as a gap, never a raw token`() {
+        val dataOnly = listOf(rule(1, 20, "1GB", BundleCategory.DATA))
+        val rendered = TemplateEngine.render(
+            "Our minutes:\n{minutes_offers}\nThanks.",
+            TemplateEngine.unmatchedValues("A", KshAmount.ofShillings(35), "0700", dataOnly),
+        )
+        assertThat(rendered).doesNotContain("{minutes_offers}")
+        assertThat(rendered).doesNotContain("Ksh")
+        assertThat(rendered).contains("Our minutes:")
+        assertThat(rendered).contains("Thanks.")
+    }
+
+    @Test
+    fun `per-category offers are allowed in the unmatched flow only`() {
+        val perCategory = listOf(
+            TemplateVariable.DATA_OFFERS,
+            TemplateVariable.MINUTES_OFFERS,
+            TemplateVariable.SMS_OFFERS,
+        )
+        assertThat(TemplateVariable.allowedFor(TemplateType.UNMATCHED)).containsAtLeastElementsIn(perCategory)
+        assertThat(TemplateVariable.allowedFor(TemplateType.MATCHED)).containsNoneIn(perCategory)
     }
 
     // --- Matched flow -------------------------------------------------------

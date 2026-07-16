@@ -39,8 +39,17 @@ enum class TemplateVariable(val token: String) {
     /** Customer's phone number as M-Pesa reported it. */
     PHONE("{phone}"),
 
-    /** The active price list, one bundle per line. Unmatched flow only. */
+    /** The whole active price list, one bundle per line. Unmatched flow only. */
     BUNDLE_LIST("{bundle_list}"),
+
+    /** Active data bundles only, cheapest first. Unmatched flow only. */
+    DATA_OFFERS("{data_offers}"),
+
+    /** Active minutes bundles only, cheapest first. Unmatched flow only. */
+    MINUTES_OFFERS("{minutes_offers}"),
+
+    /** Active SMS bundles only, cheapest first. Unmatched flow only. */
+    SMS_OFFERS("{sms_offers}"),
 
     /** Description of the bundle the payment matched. Matched flow only. */
     PACKAGE("{package}"),
@@ -61,7 +70,8 @@ enum class TemplateVariable(val token: String) {
          * ask for.
          */
         fun allowedFor(type: TemplateType): Set<TemplateVariable> = when (type) {
-            TemplateType.UNMATCHED -> setOf(NAME, AMOUNT, PHONE, BUNDLE_LIST)
+            TemplateType.UNMATCHED ->
+                setOf(NAME, AMOUNT, PHONE, BUNDLE_LIST, DATA_OFFERS, MINUTES_OFFERS, SMS_OFFERS)
             TemplateType.MATCHED -> setOf(NAME, AMOUNT, PHONE, PACKAGE)
         }
 
@@ -71,8 +81,15 @@ enum class TemplateVariable(val token: String) {
 
         fun byToken(token: String): TemplateVariable? = entries.firstOrNull { it.token == token }
 
-        /** Matches `{name}` and also `{nmae}` — recognising typos is the point. */
-        private val TOKEN_PATTERN = Regex("""\{[a-zA-Z_][a-zA-Z0-9_]*}""")
+        /**
+         * Matches `{name}` and also `{nmae}` — recognising typos is the point.
+         *
+         * The closing `}` MUST stay escaped (`\}`): Android's ICU regex engine
+         * throws PatternSyntaxException on a lone unescaped `}` and force-closed a
+         * screen at class-init on Samsung/Android 14; the desktop JVM tolerates it,
+         * so CI never sees it. See v1.0.3.
+         */
+        private val TOKEN_PATTERN = Regex("""\{[a-zA-Z_][a-zA-Z0-9_]*\}""")
     }
 }
 
