@@ -4,8 +4,14 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.scopesms.autoreply.di.AppContainer
+import com.scopesms.autoreply.domain.settings.ThemePreference
 import com.scopesms.autoreply.ui.ScopeSmsApp
 import com.scopesms.autoreply.ui.theme.ScopeSmsTheme
 
@@ -27,7 +33,21 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
-            ScopeSmsTheme {
+            // The agent's light/dark/system choice, applied to the whole app.
+            // AppContainer.from uses the application context, so reading it from
+            // an Activity here leaks nothing. The initial SYSTEM is only in play
+            // for the first frame before DataStore's read lands.
+            val settings = remember { AppContainer.from(this).settings }
+            val themePreference by settings.themePreference
+                .collectAsStateWithLifecycle(initialValue = ThemePreference.DEFAULT)
+
+            val darkTheme = when (themePreference) {
+                ThemePreference.SYSTEM -> isSystemInDarkTheme()
+                ThemePreference.LIGHT -> false
+                ThemePreference.DARK -> true
+            }
+
+            ScopeSmsTheme(darkTheme = darkTheme) {
                 ScopeSmsApp(modifier = Modifier.fillMaxSize())
             }
         }

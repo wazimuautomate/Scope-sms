@@ -15,6 +15,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -52,40 +53,45 @@ fun TemplatesScreen(
     val type = TemplateType.entries[selectedTab]
     val editor = state.forType(type)
 
-    Column(modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = selectedTab) {
-            TemplateType.entries.forEachIndexed { index, entry ->
-                Tab(
-                    selected = selectedTab == index,
-                    onClick = { selectedTab = index },
-                    text = {
-                        Text(
-                            stringResource(
-                                when (entry) {
-                                    TemplateType.UNMATCHED -> R.string.tpl_tab_unmatched
-                                    TemplateType.MATCHED -> R.string.tpl_tab_matched
-                                },
-                            ),
-                        )
-                    },
-                )
+    // The TabRow is the topBar of a nested Scaffold, and the body scrolls as the
+    // Scaffold's content directly. This is deliberately the *same* shape as Home
+    // and Settings — the two screens that scroll without crashing on the agent's
+    // device — not the earlier `Column { TabRow; Column(weight(1f).verticalScroll) }`.
+    //
+    // That earlier form is the textbook `weight(1f)` fix for the "measured with an
+    // infinity maximum height" crash and is correct on paper, but it kept
+    // force-closing this one screen in the field while every root-level-scroll
+    // screen stayed fine. So this drops `weight` entirely: a verticalScroll placed
+    // as a Scaffold body gets bounded height the same way Home's does, with no
+    // nested-Column measurement in the middle to get it wrong. Pinned tabs, a
+    // scrolling body — same UX, a structure that is proven on the actual handset.
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            TabRow(selectedTabIndex = selectedTab) {
+                TemplateType.entries.forEachIndexed { index, entry ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        text = {
+                            Text(
+                                stringResource(
+                                    when (entry) {
+                                        TemplateType.UNMATCHED -> R.string.tpl_tab_unmatched
+                                        TemplateType.MATCHED -> R.string.tpl_tab_matched
+                                    },
+                                ),
+                            )
+                        },
+                    )
+                }
             }
-        }
-
+        },
+    ) { innerPadding ->
         Column(
-            // weight(1f), NOT fillMaxSize(). This Column sits below the TabRow
-            // inside the outer Column, so it is a *nested* child — and a Column
-            // measures a non-weighted child with an infinite max height. A
-            // verticalScroll given infinite height throws
-            // "Vertically scrollable component was measured with an infinity
-            // maximum height", which force-closes the screen on open. weight(1f)
-            // makes the outer Column hand it a finite height (what's left under
-            // the tabs), which is also the UX we want: pinned tabs, scrolling
-            // body. The other scrolling screens escape this only because their
-            // scroll is the Scaffold body directly, which is already bounded.
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
+                .padding(innerPadding)
+                .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

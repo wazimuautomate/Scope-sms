@@ -26,7 +26,7 @@ of the downloaded CI reports, not off the green tick).
 | **8** | Activity log & dashboard stats | 🟡 **Done** — stats-vs-real-traffic check needs a device |
 | **9** | Reliability hardening | 🟡 **Built** — soak/reboot/airplane-mode tests need a device |
 | **10** | Cross-version testing | ✅ **Done** — emulator matrix runs on API 30 + 36 |
-| **11** | Release packaging & distribution | 🟡 **Wired, not exercised** — needs a signing key |
+| **11** | Release packaging & distribution | 🟡 **Key generated 2026-07-16** — needs the agent to add 4 GitHub secrets, then first signed build |
 
 **What "🟡" means here: the code is written and tested as far as this workflow
 can test it. Every remaining item needs a physical phone or an answer from the
@@ -62,21 +62,25 @@ regardless of these values. The default cannot text a customer before the agent
 has entered prices. Change `NotificationToggles.DEFAULT` and the tests that pin
 it if the answer differs.
 
-### 3. The release signing key does not exist yet
-Phase 11's `release.yml` is written and expects four GitHub Secrets
-(`SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`,
-`SIGNING_KEY_PASSWORD`). None are set, so **no tagged release has ever been
-built** — the workflow is unexercised.
+### 3. The release signing key — GENERATED 2026-07-16, custody handed to the agent
+Previously "does not exist yet". It now exists: a permanent RSA-2048 keystore
+(alias `scope-sms`, 10 000-day validity) generated this session and handed to the
+agent as a base64 blob + password, to load into the four GitHub Secrets
+(`SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS` = `scope-sms`,
+`SIGNING_KEY_PASSWORD`). **The keystore is NOT in the repo and must never be** —
+it lived only in this session's scratchpad.
 
-This was a deliberate hand-back, not an oversight: the signing key is the app's
-permanent identity, and key custody is the client's decision. Commands are in
-README → "Cutting a release".
+Open until the agent confirms: the four secrets are added, and the first signed
+`testing` pre-release actually builds. Until the secrets exist, `build.yml`'s
+signed-APK path and the whole tagged `release.yml` are still unexercised.
 
-**The thing to understand before generating it:** whatever signs v1.0.0 must sign
-every future update. A lost key means the agent must uninstall to update, losing
-their prices, templates and history. Today's testing APK is **debug-signed**, so
-the first real signed release will need one uninstall/reinstall — cheap now,
-expensive once they're live.
+**Still true and load-bearing:** whatever signs v1.0.0 must sign every future
+update. A lost key ⇒ the agent uninstalls to update, losing prices/templates/
+history. **New this session:** CI now signs the *testing* (debug) APK with this
+same key (`app/build.gradle.kts` debug `signingConfig`, active only when
+`SIGNING_KEYSTORE_PATH` is set), so testing builds and the eventual release update
+over each other seamlessly. The one unavoidable uninstall is the switch *from* the
+old random-debug-key build *to* the first signed build — after that, never again.
 
 ### 4. targetSdk 36 vs 37 — decided: stay at 36 for v1.0.0
 Was owned by Phase 10. `compileSdk = 37`, `targetSdk = 36`, unchanged, and now a
@@ -315,6 +319,28 @@ re-enabling backup.
 ---
 
 ## Gotchas discovered (save the next session the debugging)
+
+### 🔴 The Messages tab crashed TWICE — `weight(1f)` was correct but not enough
+Round 1 hit "Vertically scrollable component was measured with an infinity
+maximum height" on the Messages (Templates) tab and fixed it the textbook way:
+give the nested scroll `Modifier.weight(1f)` so its parent `Column` hands it a
+finite height. That fix is genuinely correct — a Column measures a *non-weighted*
+child with `maxHeight = Infinity`, and `weight` (fill=true) replaces that with the
+finite leftover.
+
+**It still force-closed on the agent's round-2 build** (which carried round-1's
+sample-send buttons, so the fix was definitely in it). Rather than keep betting on
+`weight`, round 2 rebuilt Templates to the *exact* shape of Home and Settings —
+the only scrolling screens that never crashed on this handset: a **nested
+`Scaffold`** with the `TabRow` as `topBar` and the body as a **root-level
+`verticalScroll` Scaffold body**, no `weight`, no intermediate `Column` measure.
+
+Lesson for the next scroll bug: prefer the root-of-a-Scaffold scroll shape that is
+already proven on the device over any nested-`Column` arrangement, however
+theoretically sound. Activity still uses `LazyColumn(weight(1f))` — left alone
+because it opens fine, but note we have **no on-device proof** of that path since
+an empty log early-returns before the LazyColumn composes. If Activity ever
+crashes once it has data, this is the first place to look.
 
 ### 🔴 There IS a working local toolchain now — CI is no longer the only compiler
 This changes the project's central assumption (CLAUDE.md constraint 8) and is the

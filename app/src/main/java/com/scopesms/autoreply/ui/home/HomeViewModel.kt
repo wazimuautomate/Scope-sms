@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.scopesms.autoreply.di.AppContainer
+import com.scopesms.autoreply.domain.log.ActivityRecord
 import com.scopesms.autoreply.domain.log.DashboardStats
 import com.scopesms.autoreply.domain.notifications.NotificationToggles
 import com.scopesms.autoreply.domain.permissions.AppPermission
@@ -23,7 +24,6 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 
 /**
  * Everything wrong with the app's setup, in the order the agent should fix it.
@@ -124,6 +124,17 @@ class HomeViewModel(
         .map { it?.duplicateAmounts?.size ?: 0 }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), 0)
 
+    /**
+     * The three most recent processed payments, for Home's "Latest replies" list
+     * — the space the two toggles used to occupy before they moved to Settings.
+     *
+     * `recent` is already newest-first and capped in the DAO; three is all Home
+     * shows, and the agent taps through to the full Activity log for the rest.
+     */
+    val recentReplies: StateFlow<List<ActivityRecord>> = container.activityLog.recent
+        .map { it.take(RECENT_REPLIES) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
+
     init {
         refresh()
     }
@@ -145,16 +156,9 @@ class HomeViewModel(
         }
     }
 
-    fun setUnmatchedEnabled(enabled: Boolean) {
-        viewModelScope.launch { container.settings.setUnmatchedReplyEnabled(enabled) }
-    }
-
-    fun setMatchedEnabled(enabled: Boolean) {
-        viewModelScope.launch { container.settings.setMatchedReplyEnabled(enabled) }
-    }
-
     companion object {
         private const val STOP_TIMEOUT_MS = 5_000L
+        private const val RECENT_REPLIES = 3
 
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {

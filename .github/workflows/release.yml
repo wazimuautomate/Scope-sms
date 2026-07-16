@@ -107,11 +107,14 @@ jobs:
           BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           "$BUILD_TOOLS/apksigner" verify --print-certs "$APK"
 
-      - name: Rename the APK for humans
+      - name: Name the APK for humans
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          # Drop the leading "v" so the file reads "Scope-SMS-version-1.0.0.apk",
+          # matching the versionName the app reports and the testing builds' name.
+          VERSION="${TAG#v}"
           APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
-          cp "$APK" "scope-sms-$TAG.apk"
+          cp "$APK" "Scope-SMS-version-$VERSION.apk"
 
       # The deliverable. Attached to a Release rather than left as a workflow
       # artifact because artifacts expire and need a GitHub login to download —
@@ -121,11 +124,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: Scope SMS ${{ github.event.inputs.tag || github.ref_name }}
+          name: Scope SMS version ${{ github.event.inputs.tag || github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
-          files: scope-sms-*.apk
+          files: Scope-SMS-version-*.apk
           body: |
             ## Installing
 

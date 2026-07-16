@@ -8,13 +8,11 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.scopesms.autoreply.BuildConfig
 import com.scopesms.autoreply.di.AppContainer
+import com.scopesms.autoreply.domain.notifications.NotificationToggles
 import com.scopesms.autoreply.domain.reliability.OemAutostartGuide
 import com.scopesms.autoreply.domain.reliability.OemGuidance
-import com.scopesms.autoreply.domain.money.KshAmount
-import com.scopesms.autoreply.domain.rules.PricingRule
+import com.scopesms.autoreply.domain.settings.ThemePreference
 import com.scopesms.autoreply.domain.sim.SimSelection
-import com.scopesms.autoreply.domain.templates.TemplateEngine
-import com.scopesms.autoreply.domain.templates.TemplateType
 import com.scopesms.autoreply.domain.update.UpdateStatus
 import com.scopesms.autoreply.network.GatewayCredentials
 import com.scopesms.autoreply.network.SendOutcome
@@ -41,6 +39,11 @@ sealed interface TestSendState {
 data class SettingsUiState(
     val sims: List<SimInfo> = emptyList(),
     val simSelection: SimSelection = SimSelection.DEFAULT,
+    // The two reply flows moved here from Home at the client's request — Home now
+    // shows the latest replies instead. These are the agent's throttle on
+    // sender-ID ban risk.
+    val toggles: NotificationToggles = NotificationToggles.DEFAULT,
+    val themePreference: ThemePreference = ThemePreference.DEFAULT,
     val batteryExempt: Boolean = true,
     val gatewayConfigured: Boolean = false,
     val senderId: String = "",
@@ -104,7 +107,29 @@ class SettingsViewModel(
                 }
             }
         }
+        viewModelScope.launch {
+            container.settings.notificationToggles.collect { toggles ->
+                _uiState.update { it.copy(toggles = toggles) }
+            }
+        }
+        viewModelScope.launch {
+            container.settings.themePreference.collect { preference ->
+                _uiState.update { it.copy(themePreference = preference) }
+            }
+        }
         refresh()
+    }
+
+    fun setUnmatchedEnabled(enabled: Boolean) {
+        viewModelScope.launch { container.settings.setUnmatchedReplyEnabled(enabled) }
+    }
+
+    fun setMatchedEnabled(enabled: Boolean) {
+        viewModelScope.launch { container.settings.setMatchedReplyEnabled(enabled) }
+    }
+
+    fun setThemePreference(preference: ThemePreference) {
+        viewModelScope.launch { container.settings.setThemePreference(preference) }
     }
 
     /** Re-reads what system UI can change behind our back. */
@@ -172,9 +197,6 @@ class SettingsViewModel(
         }
     }
 
-    /** Which sample the test-send button should use. */
-    enum class TestKind { PLAIN, MATCHED, UNMATCHED }
-
     /**
      * Sends a real SMS through the real gateway to [phone].
      *
@@ -185,19 +207,17 @@ class SettingsViewModel(
      * is waiting. It bypasses the queue because the agent is standing here
      * watching for the answer.
      *
-     * [kind] chooses the body: a plain "it works" line, or a rendered sample of
-     * the actual matched/unmatched reply so the agent can see on their own phone
-     * exactly what a customer would receive — the client asked for both. The
-     * samples render through the *real* template engine and the agent's *real*
-     * templates and price list, so a wording or segment surprise shows up here.
+     * A single plain "it works" line. The earlier "send a real price-list /
+     * confirmation sample" variants were removed at the client's request — they
+     * rendered from the live templates and reliably tripped the gateway, and the
+     * agent already previews those exact messages on the Messages screen.
      */
-    fun sendTest(phone: String, kind: TestKind = TestKind.PLAIN) {
+    fun sendTest(phone: String) {
         if (!_uiState.value.canTestSend) return
 
         _uiState.update { it.copy(testSend = TestSendState.Sending) }
         viewModelScope.launch {
-            val message = sampleBody(kind)
-            val outcome = container.gateway.sendSms(phone = phone.trim(), message = message)
+            val outcome = container.gateway.sendSms(phone = phone.trim(), message = TEST_MESSAGE)
             _uiState.update {
                 it.copy(
                     testSend = when (outcome) {
@@ -207,34 +227,6 @@ class SettingsViewModel(
                 )
             }
         }
-    }
-
-    /** Renders the sample body for [kind] from the live templates and prices. */
-    private suspend fun sampleBody(kind: TestKind): String {
-        if (kind == TestKind.PLAIN) return TEST_MESSAGE
-
-        val templates = container.templateCache.currentOrNull() ?: return TEST_MESSAGE
-        val activeRules = container.ruleCache.currentOrNull()?.activeRules.orEmpty()
-        val sampleAmount = activeRules.firstOrNull()?.amount ?: KshAmount.ofShillings(SAMPLE_SHILLINGS)
-
-        val values = when (kind) {
-            TestKind.MATCHED -> TemplateEngine.matchedValues(
-                name = SAMPLE_NAME,
-                amount = sampleAmount,
-                phone = SAMPLE_PHONE,
-                matchedRule = activeRules.firstOrNull() ?: SAMPLE_RULE,
-            )
-            TestKind.UNMATCHED -> TemplateEngine.unmatchedValues(
-                name = SAMPLE_NAME,
-                amount = KshAmount.ofShillings(SAMPLE_ODD_SHILLINGS),
-                phone = SAMPLE_PHONE,
-                activeRules = activeRules,
-            )
-            TestKind.PLAIN -> return TEST_MESSAGE
-        }
-
-        val type = if (kind == TestKind.MATCHED) TemplateType.MATCHED else TemplateType.UNMATCHED
-        return TemplateEngine.render(templates.forType(type), values)
     }
 
     fun dismissTestResult() {
@@ -260,18 +252,6 @@ class SettingsViewModel(
     companion object {
         private const val TEST_MESSAGE =
             "Scope SMS test message. Your gateway is set up correctly."
-
-        // Stand-ins for the matched/unmatched sample sends, mirroring the
-        // Templates preview so the two agree.
-        private const val SAMPLE_NAME = "John Kamau"
-        private const val SAMPLE_PHONE = "0712345678"
-        private const val SAMPLE_SHILLINGS = 50L
-        private const val SAMPLE_ODD_SHILLINGS = 35L
-        private val SAMPLE_RULE = PricingRule(
-            id = 0,
-            amount = KshAmount.ofShillings(SAMPLE_SHILLINGS),
-            bundleDescription = "2GB Weekly",
-        )
 
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {

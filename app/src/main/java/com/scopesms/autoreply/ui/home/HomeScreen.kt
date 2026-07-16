@@ -19,14 +19,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,7 +32,12 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.scopesms.autoreply.R
+import com.scopesms.autoreply.domain.log.ActivityRecord
 import com.scopesms.autoreply.domain.log.DashboardStats
+import com.scopesms.autoreply.domain.log.NotifyStatus
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
  * Home — is the app working, what did it do today, and the two toggles.
@@ -53,6 +56,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val recentReplies by viewModel.recentReplies.collectAsStateWithLifecycle()
 
     // Permissions and the battery exemption are changed in system UI, so the
     // agent leaves and comes back. Without this they return to a screen still
@@ -87,26 +91,98 @@ fun HomeScreen(
         )
         StatTiles(stats = state.stats, onOpenLog = onOpenLog)
 
-        Text(
-            text = stringResource(R.string.home_replies),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        ToggleRow(
-            title = stringResource(R.string.toggle_unmatched_title),
-            subtitle = stringResource(R.string.toggle_unmatched_subtitle),
-            checked = state.toggles.unmatchedReplyEnabled,
-            onCheckedChange = viewModel::setUnmatchedEnabled,
-        )
-        ToggleRow(
-            title = stringResource(R.string.toggle_matched_title),
-            subtitle = stringResource(R.string.toggle_matched_subtitle),
-            checked = state.toggles.matchedReplyEnabled,
-            onCheckedChange = viewModel::setMatchedEnabled,
-        )
+        // The two reply toggles moved to Settings at the client's request. This
+        // space now shows the three most recent replies — the thing the agent
+        // actually wants to glance at from Home: did the last few customers get
+        // answered? Tapping any of them, or "See all", opens the full log.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.home_recent),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            if (recentReplies.isNotEmpty()) {
+                TextButton(onClick = onOpenLog) {
+                    Text(stringResource(R.string.home_recent_see_all))
+                }
+            }
+        }
+
+        if (recentReplies.isEmpty()) {
+            Text(
+                text = stringResource(R.string.home_recent_empty),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            recentReplies.forEach { record ->
+                RecentReplyCard(record = record, onClick = onOpenLog)
+            }
+        }
 
         Spacer(Modifier.height(8.dp))
     }
 }
+
+/** One compact row in Home's "Latest replies" list. */
+@Composable
+private fun RecentReplyCard(record: ActivityRecord, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = if (record.notifyStatus.isFailure) {
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            )
+        } else {
+            CardDefaults.cardColors()
+        },
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = stringResource(R.string.log_amount, record.amount.format()),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = record.timestamp.asShortTime(),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            Text(
+                text = record.senderName ?: record.senderPhone,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = stringResource(record.notifyStatus.labelRes()),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private fun NotifyStatus.labelRes(): Int = when (this) {
+    NotifyStatus.QUEUED -> R.string.notify_queued
+    NotifyStatus.SENT -> R.string.notify_sent
+    NotifyStatus.SILENT -> R.string.notify_silent
+    NotifyStatus.FAILED -> R.string.notify_failed
+}
+
+/** Local time — the agent reads this against their own clock. */
+private fun Long.asShortTime(): String = HOME_TIME_FORMAT.format(
+    Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()),
+)
+
+private val HOME_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM, HH:mm")
 
 @Composable
 private fun StatusBanner(isMonitoring: Boolean) {
@@ -267,28 +343,3 @@ private fun StatTile(
     }
 }
 
-@Composable
-private fun ToggleRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Card(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(text = title, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
-        }
-    }
-}

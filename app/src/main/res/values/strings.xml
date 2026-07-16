@@ -25,7 +25,9 @@
 
     <!-- Home -->
     <string name="home_today">Today</string>
-    <string name="home_replies">Automatic replies</string>
+    <string name="home_recent">Latest replies</string>
+    <string name="home_recent_see_all">See all</string>
+    <string name="home_recent_empty">No payments yet. When a customer pays, the reply shows up here.</string>
     <string name="home_status_on">Watching for payments</string>
     <string name="home_status_on_detail">M-Pesa payments will be answered automatically.</string>
     <string name="home_status_off">Not replying to anyone</string>
@@ -132,9 +134,13 @@
     <string name="settings_test_phone">Your own number, e.g. 0712345678</string>
     <string name="settings_test_send">Send test</string>
     <string name="settings_test_ok">Sent. If it arrives, your gateway is set up correctly.</string>
-    <string name="settings_test_samples">Or send a real sample reply to see exactly what a customer gets:</string>
-    <string name="settings_test_matched">Purchase confirmation</string>
-    <string name="settings_test_unmatched">Price list reply</string>
+
+    <string name="settings_replies">Automatic replies</string>
+
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_theme_system">Follow system (default)</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
 
     <string name="settings_reliability">Staying awake</string>
     <string name="settings_battery_ok">Scope SMS is allowed to run in the background.</string>

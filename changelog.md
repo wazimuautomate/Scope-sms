@@ -4,6 +4,73 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-16 — Round-2 device-testing fixes + real versioning 🟡 (feature branch)
+
+Eight items back from the agent's second real-device test. Fixed on a feature
+branch; all unit tests green locally (JDK 21 + the installed SDK — the local
+toolchain the previous session documented). Version set to **0.9.0** for this
+round; **1.0.0 is held until the agent confirms** everything works, exactly as
+the client asked.
+
+### The Messages-tab crash (#1) — restructured, not re-patched
+Round 1 applied the textbook `weight(1f)` fix for the "measured with an infinity
+maximum height" crash, which is correct on paper — yet the tab still force-closed
+on the agent's build (the build that also carries round-1's sample-send buttons,
+so it definitely had the fix). Rather than re-patch the same shape, the Messages
+(Templates) screen was rebuilt to the *exact* structure Home and Settings use —
+the only scrolling screens proven not to crash on the agent's handset: the TabRow
+is now a nested-`Scaffold` `topBar` and the body is a root-level `verticalScroll`
+Scaffold body, with **no `weight` in the middle** for a nested `Column` measure to
+get wrong. The data path was independently proven exception-free (render, segment
+count, cache lookup are all pure/total), so this was the layout or nothing.
+
+### The rest
+- **#2 test-send** — removed the "send a real price-list / purchase-confirmation
+  sample" buttons (a round-1 addition). They rendered from the live templates and
+  reliably tripped the gateway; the agent already previews those exact messages on
+  the Messages screen. The plain "Send test" is back to what it was.
+- **#3 keep-running instructions** — the OEM "Keep Scope SMS running" section is
+  now collapsible and **collapsed by default**, a tappable header expands it.
+- **#4 toggles → Settings, latest replies → Home** — the two auto-reply toggles
+  moved off Home into a new Settings "Automatic replies" section. Home now shows
+  the **latest 3 replies** (amount, who, status, time), tap-through to the full
+  log.
+- **#5 theme** — new Settings "Appearance" section: System / Light / Dark,
+  **System is the default**. Applied app-wide via `MainActivity` observing a new
+  `SettingsRepository.themePreference`.
+- **#6 activity filters** — the log's filter chips now sit on one horizontally
+  **scrolling** row instead of wrapping onto several lines.
+- **#7/#8 versioning, signing, updatable installs** — see below.
+
+### Versioning & signing (the big one)
+- **A permanent release keystore now exists.** Generated this session (RSA-2048,
+  10 000-day validity, alias `scope-sms`). It is the app's permanent identity;
+  whatever signs a build must sign every future update or the agent has to
+  uninstall (losing prices/templates/history). Handed to the agent as a base64
+  blob + password to load into four GitHub secrets — **never committed**.
+- **CI now signs the testing (debug) APK with that same release key** when the
+  secrets are present (`app/build.gradle.kts` debug `signingConfig`). Same
+  certificate as the eventual release build ⇒ testing builds and v1.0.0 update
+  over each other with no uninstall. One-time cost: the first signed build over
+  the old *unsigned* test build needs a single uninstall (the memory predicted
+  this).
+- **`build.yml` now publishes a rolling `testing` GitHub pre-release** with the
+  APK named `Scope-SMS-version-0.9.0.apk` — a direct, un-zipped, login-free
+  download, which is what the agent asked for (workflow artifacts are always
+  zipped). Gated on the signing secret being present; skips with a warning
+  otherwise. `release.yml` naming aligned to the same `Scope-SMS-version-X.Y.Z`
+  convention.
+
+### Still needs the agent
+- Install the new **0.9.0** testing build (one uninstall of the current app the
+  first time — data on the current debug build is not preserved across the key
+  switch), confirm the Messages tab opens and every fix behaves, **then** we tag
+  **v1.0.0**.
+- The four signing secrets must be added to GitHub before CI can publish the
+  signed testing release (steps handed over this session).
+
+---
+
 ## 2026-07-16 — Round-1 device-testing fixes ✅ (merged to main)
 
 Six issues came back from the agent's real-device test; all fixed, plus a batch

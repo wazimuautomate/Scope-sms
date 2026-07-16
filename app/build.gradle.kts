@@ -56,8 +56,13 @@ android {
         // release workflow verifies the tag matches this, because a Release
         // labelled v1.1.0 containing an APK that reports 1.0.0 would make the
         // update prompt reappear forever.
-        versionCode = 2
-        versionName = "1.0.0"
+        //
+        // 0.9.0 is the round-2 testing build. 1.0.0 is deliberately held back
+        // until the agent confirms every reported issue is fixed on a real
+        // device — the client asked for exactly that. Bump to 1.0.0 (versionCode
+        // 4) and tag v1.0.0 only then.
+        versionCode = 3
+        versionName = "0.9.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -92,6 +97,19 @@ android {
         debug {
             // Every CI push produces one of these for the agent to install.
             isMinifyEnabled = false
+
+            // Sign the testing APK with the *permanent* release key whenever CI
+            // has materialised it (SIGNING_KEYSTORE_PATH set). This is what makes
+            // the agent's testing builds updatable: an APK's install identity is
+            // its signing certificate, not its build type, so a debug build and a
+            // release build signed by the same key update over each other with no
+            // uninstall — and no lost prices, templates or history.
+            //
+            // Without the env var (a local build, or CI before the secrets are
+            // added) this is null and the debug build keeps Android's default
+            // per-machine debug key. Those APKs are for the developer, not the
+            // agent, so their rotating signature doesn't matter.
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
         release {
             // Phase 11: signed by the tag-triggered workflow. Null when the

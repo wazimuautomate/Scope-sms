@@ -1,17 +1,26 @@
 package com.scopesms.autoreply.ui.reliability
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -67,68 +76,93 @@ fun OemGuidanceSection(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Collapsed by default, at the agent's request. These instructions matter
+    // once — while setting the phone up — and then get in the way of the settings
+    // the agent actually returns to. A tappable header keeps them one tap away
+    // without letting them dominate the screen every time.
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
     Card(modifier = modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = "Keep Scope SMS running",
-                style = MaterialTheme.typography.titleMedium,
-            )
-
-            Text(
-                // Deliberately explains *why* before *what*. This screen asks the
-                // agent to go digging through a vendor settings app, and an
-                // instruction with no reason attached is one they'll abandon
-                // halfway. The reason is also the honest one: we cannot do this
-                // for them, no matter how the app is written.
-                text = "This phone can stop Scope SMS in the background, which means " +
-                    "customer payments arrive with no reply. Android's battery setting " +
-                    "is not enough on its own — this phone has its own list, and only " +
-                    "you can add Scope SMS to it.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-
-            guidance.steps.forEachIndexed { index, step ->
-                Row(verticalAlignment = Alignment.Top) {
-                    Text(
-                        text = "${index + 1}.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.width(24.dp),
-                    )
-                    Text(text = step, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-
-            guidance.caveat?.let { caveat ->
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                    ),
-                ) {
-                    Text(
-                        text = caveat,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(12.dp),
-                    )
-                }
-            }
-
-            // Always shown. Even when the vendor's own screen can't be reached,
-            // [OemSettingsLauncher.open] falls back to this app's system settings
-            // page, so the button always lands somewhere useful. A dead button
-            // was the reported bug; `canOpenSettings` now only picks the label.
-            Button(onClick = onOpenSettings) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = if (canOpenSettings) {
-                        guidance.settingsAppName?.let { "Open $it" } ?: "Open settings"
-                    } else {
-                        "Open app settings"
-                    },
+                    text = "Keep Scope SMS running",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
                 )
+                Icon(
+                    imageVector = if (expanded) {
+                        Icons.Default.KeyboardArrowUp
+                    } else {
+                        Icons.Default.KeyboardArrowDown
+                    },
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                )
+            }
+
+            if (expanded) {
+                Text(
+                    // Deliberately explains *why* before *what*. This screen asks
+                    // the agent to go digging through a vendor settings app, and
+                    // an instruction with no reason attached is one they'll
+                    // abandon halfway. The reason is also the honest one: we cannot
+                    // do this for them, no matter how the app is written.
+                    text = "This phone can stop Scope SMS in the background, which means " +
+                        "customer payments arrive with no reply. Android's battery setting " +
+                        "is not enough on its own — this phone has its own list, and only " +
+                        "you can add Scope SMS to it.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+
+                guidance.steps.forEachIndexed { index, step ->
+                    Row(verticalAlignment = Alignment.Top) {
+                        Text(
+                            text = "${index + 1}.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.width(24.dp),
+                        )
+                        Text(text = step, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+
+                guidance.caveat?.let { caveat ->
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                        ),
+                    ) {
+                        Text(
+                            text = caveat,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
+
+                // Even when the vendor's own screen can't be reached,
+                // [OemSettingsLauncher.open] falls back to this app's system
+                // settings page, so the button always lands somewhere useful. A
+                // dead button was a reported bug; `canOpenSettings` only picks the
+                // label.
+                Button(onClick = onOpenSettings) {
+                    Text(
+                        text = if (canOpenSettings) {
+                            guidance.settingsAppName?.let { "Open $it" } ?: "Open settings"
+                        } else {
+                            "Open app settings"
+                        },
+                    )
+                }
             }
         }
     }

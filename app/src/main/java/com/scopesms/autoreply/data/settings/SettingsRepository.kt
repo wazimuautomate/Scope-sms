@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.scopesms.autoreply.domain.notifications.NotificationToggles
+import com.scopesms.autoreply.domain.settings.ThemePreference
 import com.scopesms.autoreply.domain.sim.SimSelection
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
@@ -56,6 +57,15 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
     val onboardingComplete: Flow<Boolean> = dataStore.data
         .safe()
         .map { it[KEY_ONBOARDING_COMPLETE] ?: false }
+
+    /**
+     * Light/dark/system choice. Emits the current value immediately, then on
+     * every change, so the whole app recolours the moment the agent picks a new
+     * option in Settings.
+     */
+    val themePreference: Flow<ThemePreference> = dataStore.data
+        .safe()
+        .map { ThemePreference.decode(it[KEY_THEME_PREFERENCE]) }
 
     /**
      * Last toggles read from disk, or null before the first read.
@@ -110,6 +120,10 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[KEY_ONBOARDING_COMPLETE] = complete }
     }
 
+    suspend fun setThemePreference(preference: ThemePreference) {
+        dataStore.edit { it[KEY_THEME_PREFERENCE] = preference.name }
+    }
+
     /**
      * The toggles, for callers on the hot path. No I/O once anything in this
      * process has read [notificationToggles] — see [currentSimSelection].
@@ -157,6 +171,11 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
 
         private val KEY_SIM_SELECTION = stringPreferencesKey("sim_selection")
         private val KEY_ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+
+        // Absent means "never chosen" and decodes to ThemePreference.DEFAULT
+        // (SYSTEM) — a missing key must read as "follow the phone", not as a
+        // forced light or dark.
+        private val KEY_THEME_PREFERENCE = stringPreferencesKey("theme_preference")
 
         // Phase 6. Absent means "never set" and falls back to
         // NotificationToggles.DEFAULT — which is why these are read with `?:`

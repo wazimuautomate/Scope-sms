@@ -1,15 +1,15 @@
 package com.scopesms.autoreply.ui.log
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -46,7 +46,6 @@ import java.time.format.DateTimeFormatter
  * — so every row has to answer that, including the rows where the answer is
  * "because you turned that off" or "because you haven't added prices yet".
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ActivityLogScreen(
     modifier: Modifier = Modifier,
@@ -65,8 +64,15 @@ fun ActivityLogScreen(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         )
 
-        FlowRow(
-            modifier = Modifier.padding(horizontal = 16.dp),
+        // One horizontal row that scrolls, rather than a FlowRow that wraps onto
+        // several lines: the agent asked for the filters laid out along one line
+        // and swiped sideways to reach the ones off-screen, which keeps the list
+        // of payments higher up the screen where they can see it.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             MatchType.entries.forEach { type ->

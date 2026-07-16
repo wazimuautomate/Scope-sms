@@ -21,10 +21,13 @@ Reading happens **on the phone, offline**. Sending goes through the client's
 
 ## Status
 
-**v1.0.0 — feature-complete, ready for real-device testing.**
+**0.9.0 — round-2 device-testing build. `1.0.0` is tagged once the agent
+confirms every fix works.**
 
-CI green: **276 unit tests + 6 instrumented tests on API 30 and API 36**, 0
-failures. Phases 0–11 are all on `main`.
+CI green on the JVM suite. Phases 0–11 are all on `main`; round-2 fixes (Messages
+tab crash, theme, latest-replies on Home, collapsible keep-running help, Settings
+toggles, scrolling activity filters, signed & updatable installs) are on a feature
+branch.
 
 What that green tick does and doesn't mean is worth being precise about:
 
@@ -43,20 +46,27 @@ words things. See "What we still need from you".
 
 ## Installing the test build
 
-No Play Store — this installs directly.
+No Play Store — this installs directly, and **not** from the zipped Actions
+artifact any more. Once the four signing secrets are set (see "Cutting a
+release"), every push to `main` publishes a **Scope SMS version … (testing)**
+pre-release with the `.apk` attached directly:
 
-1. Open the [Actions tab](https://github.com/wazimuautomate/Scope-sms/actions),
-   click the newest green **Build** run on `main`.
-2. Download the **`scope-sms-debug-…`** artifact (it's a zip; the `.apk` is
-   inside).
-3. Copy the `.apk` to the phone and tap it.
-4. Android will warn about installing from an unknown source — allow it for
+1. Open the [Releases page](https://github.com/wazimuautomate/Scope-sms/releases),
+   find **Scope SMS version 0.9.0 (testing)**.
+2. Tap **`Scope-SMS-version-0.9.0.apk`** on the phone — it downloads straight, no
+   zip, no login.
+3. Android will warn about installing from an unknown source — allow it for
    whichever app you're installing from (usually Files or Chrome). You can turn
    that back off afterwards.
 
-> This build is **debug-signed** — fine for testing, not for real distribution.
-> The first properly signed release will need a one-time uninstall/reinstall.
-> See "Cutting a release".
+> **One-time uninstall on this build.** This is the first build signed with the
+> permanent key. If you already have an older test build installed, Android will
+> ask you to uninstall it once — its prices/history are on the old build and are
+> not carried across the key switch. **After this**, every future update installs
+> straight over the top and keeps your prices, templates and history.
+>
+> `0.9.0` is the round-2 testing version. Once you confirm everything works,
+> it becomes `1.0.0`.
 
 ### Setting it up on the phone
 
@@ -158,43 +168,42 @@ must stay off the disk and off the network.
 are (read it before changing anything — several obvious-looking changes are
 obvious-looking traps), `BUILD-PLAN.md` is the phase plan.
 
-### Cutting a release
+### Signing key & releases
 
-**Not done yet, and it needs a decision from you first.** The signing key is the
-app's permanent identity: whatever signs v1.0.0 must sign every update forever.
-Lose it and the agent has to uninstall — losing their prices, templates and
-history — to install the next version. So it is yours to generate and keep, not
-CI's and not ours.
+**The signing key now exists** — generated for the agent (RSA-2048, alias
+`scope-sms`, ~27-year validity) and handed over as a base64 blob + password. It is
+the app's permanent identity: whatever signs a build must sign every future update,
+or installing the next version means uninstalling first and losing prices,
+templates and history. **Keep it backed up and private; it is never committed to
+this repo.**
 
-```bash
-# 1. Generate it. Keep the .jks somewhere backed up and private.
-keytool -genkeypair -v -keystore scope-sms-release.jks \
-  -alias scope-sms -keyalg RSA -keysize 4096 -validity 10950 \
-  -dname "CN=Scope SMS, O=<your org>, L=Nairobi, C=KE"
-
-# 2. Base64 it for GitHub.
-base64 -w0 scope-sms-release.jks > keystore.b64
-```
-
-Add four repository secrets (Settings → Secrets and variables → Actions):
+Add four repository secrets (Settings → Secrets and variables → Actions → New
+repository secret):
 
 | Secret | Value |
 | --- | --- |
-| `SIGNING_KEYSTORE_BASE64` | contents of `keystore.b64` |
-| `SIGNING_STORE_PASSWORD` | the keystore password |
+| `SIGNING_KEYSTORE_BASE64` | the base64 blob provided |
+| `SIGNING_STORE_PASSWORD` | the password provided |
 | `SIGNING_KEY_ALIAS` | `scope-sms` |
-| `SIGNING_KEY_PASSWORD` | the key password |
+| `SIGNING_KEY_PASSWORD` | the same password provided |
 
-Then:
+Once those are set:
 
-```bash
-git tag v1.0.0 && git push origin v1.0.0
-```
+- **Every push to `main`** builds an APK signed with this key and publishes/updates
+  the rolling **`testing`** pre-release (`build.yml`). That is the testing download
+  above. Same key as the real release, so it updates seamlessly into it.
+- **A real version** is cut by bumping `versionCode` **and** `versionName` in
+  `app/build.gradle.kts`, then tagging:
 
-`release.yml` runs the tests, signs, verifies the signature with `apksigner`, and
-attaches the APK to a GitHub Release with install instructions. It **fails** if
-the tag doesn't match `versionName` in `app/build.gradle.kts` — a Release labelled
-v1.1.0 whose APK reports 1.0.0 would make the in-app update prompt reappear
-forever.
+  ```bash
+  git tag v1.0.0 && git push origin v1.0.0
+  ```
 
-Bump `versionCode` **and** `versionName` together for each release.
+  `release.yml` runs the tests, signs, verifies with `apksigner`, and attaches
+  `Scope-SMS-version-1.0.0.apk` to a public GitHub Release. It **fails** if the tag
+  doesn't match `versionName` — a Release labelled v1.1.0 whose APK reports 1.0.0
+  would make the in-app update prompt reappear forever.
+
+If the four secrets are **not** set, `build.yml` still builds and tests but skips
+publishing (with a warning) — an unsigned APK there wouldn't update over the last
+one, defeating the point.

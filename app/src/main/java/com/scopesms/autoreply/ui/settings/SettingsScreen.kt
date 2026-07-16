@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,6 +38,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.scopesms.autoreply.R
+import com.scopesms.autoreply.domain.settings.ThemePreference
 import com.scopesms.autoreply.domain.sim.SimSelection
 import com.scopesms.autoreply.domain.update.UpdateStatus
 import com.scopesms.autoreply.telephony.SimInfo
@@ -66,6 +68,14 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        SectionTitle(stringResource(R.string.settings_replies))
+        RepliesSection(
+            toggles = state.toggles,
+            onUnmatchedChange = viewModel::setUnmatchedEnabled,
+            onMatchedChange = viewModel::setMatchedEnabled,
+        )
+
+        HorizontalDivider()
         SectionTitle(stringResource(R.string.settings_sim))
         SimSection(
             sims = state.sims,
@@ -76,6 +86,13 @@ fun SettingsScreen(
         HorizontalDivider()
         SectionTitle(stringResource(R.string.settings_gateway))
         GatewaySection(state = state, viewModel = viewModel)
+
+        HorizontalDivider()
+        SectionTitle(stringResource(R.string.settings_appearance))
+        ThemeSection(
+            selected = state.themePreference,
+            onSelect = viewModel::setThemePreference,
+        )
 
         HorizontalDivider()
         SectionTitle(stringResource(R.string.settings_reliability))
@@ -170,6 +187,85 @@ private fun UpdateSection(state: SettingsUiState, onCheck: () -> Unit) {
 @Composable
 private fun SectionTitle(text: String) {
     Text(text = text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+}
+
+/**
+ * The two independent reply flows, moved here from Home.
+ *
+ * They are the agent's throttle on sender-ID ban risk (CLAUDE.md, "What this app
+ * is"): confirmations are higher-volume, so the agent turns that flow off on a
+ * busy day. An empty rule list overrides both anyway, so leaving them on before
+ * prices are entered sends nothing.
+ */
+@Composable
+private fun RepliesSection(
+    toggles: com.scopesms.autoreply.domain.notifications.NotificationToggles,
+    onUnmatchedChange: (Boolean) -> Unit,
+    onMatchedChange: (Boolean) -> Unit,
+) {
+    ToggleRow(
+        title = stringResource(R.string.toggle_unmatched_title),
+        subtitle = stringResource(R.string.toggle_unmatched_subtitle),
+        checked = toggles.unmatchedReplyEnabled,
+        onCheckedChange = onUnmatchedChange,
+    )
+    ToggleRow(
+        title = stringResource(R.string.toggle_matched_title),
+        subtitle = stringResource(R.string.toggle_matched_subtitle),
+        checked = toggles.matchedReplyEnabled,
+        onCheckedChange = onMatchedChange,
+    )
+}
+
+@Composable
+private fun ToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(text = title, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
+        }
+    }
+}
+
+/** Light / dark / follow-the-phone. Defaults to system. */
+@Composable
+private fun ThemeSection(
+    selected: ThemePreference,
+    onSelect: (ThemePreference) -> Unit,
+) {
+    val options = listOf(
+        ThemePreference.SYSTEM to R.string.settings_theme_system,
+        ThemePreference.LIGHT to R.string.settings_theme_light,
+        ThemePreference.DARK to R.string.settings_theme_dark,
+    )
+    options.forEach { (preference, labelRes) ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .selectable(selected = selected == preference, onClick = { onSelect(preference) })
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(selected = selected == preference, onClick = { onSelect(preference) })
+            Text(text = stringResource(labelRes), style = MaterialTheme.typography.bodyLarge)
+        }
+    }
 }
 
 @Composable
@@ -301,37 +397,13 @@ private fun GatewaySection(state: SettingsUiState, viewModel: SettingsViewModel)
     )
     val canSend = state.canTestSend && testPhone.isNotBlank()
     Button(
-        onClick = { viewModel.sendTest(testPhone, SettingsViewModel.TestKind.PLAIN) },
+        onClick = { viewModel.sendTest(testPhone) },
         enabled = canSend,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(stringResource(R.string.settings_test_send))
     }
 
-    // The client asked to also send a real sample of each reply type, so the
-    // agent can see on their own phone exactly what a customer receives —
-    // rendered from the live templates and price list, not a mock.
-    Text(
-        text = stringResource(R.string.settings_test_samples),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(
-            onClick = { viewModel.sendTest(testPhone, SettingsViewModel.TestKind.MATCHED) },
-            enabled = canSend,
-            modifier = Modifier.weight(1f),
-        ) {
-            Text(stringResource(R.string.settings_test_matched))
-        }
-        OutlinedButton(
-            onClick = { viewModel.sendTest(testPhone, SettingsViewModel.TestKind.UNMATCHED) },
-            enabled = canSend,
-            modifier = Modifier.weight(1f),
-        ) {
-            Text(stringResource(R.string.settings_test_unmatched))
-        }
-    }
     if (state.testSend is TestSendState.Sending) {
         CircularProgressIndicator(modifier = Modifier.padding(4.dp))
     }
