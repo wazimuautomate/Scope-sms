@@ -49,10 +49,43 @@ android {
         // device. See memory.md.
         targetSdk = 36
 
-        versionCode = 1
-        versionName = "0.1.0-phase0"
+        // Phase 11. Semantic version + build number, surfaced in Settings and
+        // compared against the GitHub Releases API by the in-app update check.
+        //
+        // Bump BOTH for a release, and tag the commit `v<versionName>` — the
+        // release workflow verifies the tag matches this, because a Release
+        // labelled v1.1.0 containing an APK that reports 1.0.0 would make the
+        // update prompt reappear forever.
+        versionCode = 2
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Release signing, from a keystore CI materialises out of GitHub Secrets
+    // (SIGNING_KEYSTORE_BASE64 / SIGNING_STORE_PASSWORD / SIGNING_KEY_ALIAS /
+    // SIGNING_KEY_PASSWORD).
+    //
+    // Configured only when the env vars are present, so an ordinary
+    // `assembleRelease` on a machine without the secrets produces an *unsigned*
+    // APK rather than one silently signed with the debug key. A debug-signed
+    // "release" would install fine and then refuse every future real update with
+    // a signature mismatch — on the agent's phone, holding their live data.
+    val keystorePath = System.getenv("SIGNING_KEYSTORE_PATH")
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+
+                // v1 too: minSdk is 30 so v2/v3 always apply, but some OEM
+                // installers on this app's target handsets still look for v1.
+                enableV1Signing = true
+                enableV2Signing = true
+            }
+        }
     }
 
     buildTypes {
@@ -61,10 +94,11 @@ android {
             isMinifyEnabled = false
         }
         release {
-            // Signing is Phase 11's job: a keystore held as a base64 GitHub
-            // Secret, applied by a tag-triggered workflow. Deliberately not
-            // configured here — an unsigned release build failing loudly is
-            // better than one silently signed with debug keys.
+            // Phase 11: signed by the tag-triggered workflow. Null when the
+            // secrets aren't present — see signingConfigs above for why that is
+            // deliberately an unsigned APK rather than a debug-signed one.
+            signingConfig = signingConfigs.findByName("release")
+
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

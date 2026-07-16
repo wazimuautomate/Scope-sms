@@ -11,6 +11,7 @@ import com.scopesms.autoreply.di.AppContainer
 import com.scopesms.autoreply.domain.reliability.OemAutostartGuide
 import com.scopesms.autoreply.domain.reliability.OemGuidance
 import com.scopesms.autoreply.domain.sim.SimSelection
+import com.scopesms.autoreply.domain.update.UpdateStatus
 import com.scopesms.autoreply.network.GatewayCredentials
 import com.scopesms.autoreply.network.SendOutcome
 import com.scopesms.autoreply.telephony.SimInfo
@@ -43,6 +44,8 @@ data class SettingsUiState(
     val oemGuidance: OemGuidance? = null,
     val versionName: String = BuildConfig.VERSION_NAME,
     val versionCode: Int = BuildConfig.VERSION_CODE,
+    val update: UpdateStatus? = null,
+    val checkingForUpdate: Boolean = false,
 ) {
     /**
      * The key, masked. Never the real thing — a screenshot of Settings is the
@@ -187,6 +190,22 @@ class SettingsViewModel(
 
     fun dismissTestResult() {
         _uiState.update { it.copy(testSend = TestSendState.Idle) }
+    }
+
+    /**
+     * Phase 11's update check. On demand only — never on a timer.
+     *
+     * The agent's phone is on a metered connection they pay for by the megabyte,
+     * and an app that quietly polls GitHub in the background to tell them
+     * nothing has changed is spending their money to do it.
+     */
+    fun checkForUpdate() {
+        if (_uiState.value.checkingForUpdate) return
+        _uiState.update { it.copy(checkingForUpdate = true) }
+        viewModelScope.launch {
+            val status = container.updateChecker.check()
+            _uiState.update { it.copy(update = status, checkingForUpdate = false) }
+        }
     }
 
     companion object {

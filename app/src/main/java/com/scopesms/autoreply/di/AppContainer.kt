@@ -2,6 +2,7 @@ package com.scopesms.autoreply.di
 
 import android.content.Context
 import android.util.Log
+import com.scopesms.autoreply.BuildConfig
 import com.scopesms.autoreply.ScopeSmsApplication
 import com.scopesms.autoreply.data.AppDatabase
 import com.scopesms.autoreply.data.log.ActivityLogRepository
@@ -15,6 +16,7 @@ import com.scopesms.autoreply.domain.rules.RuleCache
 import com.scopesms.autoreply.domain.templates.MessageTemplateRepository
 import com.scopesms.autoreply.domain.templates.TemplateCache
 import com.scopesms.autoreply.network.ScopeSmsGateway
+import com.scopesms.autoreply.network.UpdateChecker
 import com.scopesms.autoreply.queue.OutboundQueue
 import com.scopesms.autoreply.queue.RoomOutboundJobStore
 import com.scopesms.autoreply.queue.SendJobWorker
@@ -154,6 +156,16 @@ class AppContainer(context: Context) {
                 activityLog.markFailed(transactionCode, reason)
             }
         }
+    }
+
+    /**
+     * Phase 11 — asks GitHub whether a newer APK exists.
+     *
+     * Nothing depends on this: it is called from Settings on demand and every
+     * failure is silent. See the class for why.
+     */
+    val updateChecker: UpdateChecker by lazy {
+        UpdateChecker.create(installedVersionName = BuildConfig.VERSION_NAME)
     }
 
     /**

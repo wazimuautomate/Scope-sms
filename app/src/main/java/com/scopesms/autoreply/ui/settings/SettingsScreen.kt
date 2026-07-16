@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -37,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.scopesms.autoreply.R
 import com.scopesms.autoreply.domain.sim.SimSelection
+import com.scopesms.autoreply.domain.update.UpdateStatus
 import com.scopesms.autoreply.telephony.SimInfo
 import com.scopesms.autoreply.ui.common.requestBatteryExemption
 import com.scopesms.autoreply.ui.reliability.OemGuidanceSection
@@ -95,6 +97,72 @@ fun SettingsScreen(
         Text(
             text = stringResource(R.string.settings_version, state.versionName, state.versionCode),
             style = MaterialTheme.typography.bodyMedium,
+        )
+        UpdateSection(state = state, onCheck = viewModel::checkForUpdate)
+    }
+}
+
+/**
+ * Phase 11's update check.
+ *
+ * On demand, and it opens a browser rather than installing anything —
+ * BUILD-PLAN Phase 11: *"prompt with a download link if newer — no
+ * auto-install."* An app that could silently replace itself on the agent's
+ * phone is a bigger thing than this needs to be.
+ */
+@Composable
+private fun UpdateSection(state: SettingsUiState, onCheck: () -> Unit) {
+    val uriHandler = LocalUriHandler.current
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedButton(onClick = onCheck, enabled = !state.checkingForUpdate) {
+            Text(stringResource(R.string.settings_update_check))
+        }
+        if (state.checkingForUpdate) {
+            CircularProgressIndicator(modifier = Modifier.padding(4.dp))
+        }
+    }
+
+    when (val update = state.update) {
+        null -> Unit
+
+        is UpdateStatus.Available -> Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(12.dp)) {
+                Text(
+                    text = stringResource(R.string.settings_update_available, update.version.toString()),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                update.notes?.takeIf { it.isNotBlank() }?.let {
+                    Text(text = it.trim(), style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = { uriHandler.openUri(update.url) }) {
+                    Text(stringResource(R.string.settings_update_open))
+                }
+            }
+        }
+
+        UpdateStatus.UpToDate -> Text(
+            text = stringResource(R.string.settings_update_current),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        // Offline, rate-limited, no releases yet. Says so plainly rather than
+        // claiming the app is up to date, which would be a guess.
+        UpdateStatus.Unknown -> Text(
+            text = stringResource(R.string.settings_update_unknown),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

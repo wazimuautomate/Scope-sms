@@ -77,4 +77,69 @@ class KshAmountTest {
         val sorted = listOf(KshAmount(10000), KshAmount(2000), KshAmount(5000)).sorted()
         assertThat(sorted).containsExactly(KshAmount(2000), KshAmount(5000), KshAmount(10000)).inOrder()
     }
+
+    // --- parseWholeShillings: what the agent is allowed to type ------------
+    //
+    // The client's requirement: bundle prices are plain integers, never 123.50.
+    // Enforced at entry so that format() can be trusted to render a rule's price
+    // with no decimal point anywhere else in the app.
+
+    @Test
+    fun `parses a whole-shilling price`() {
+        assertThat(KshAmount.parseWholeShillings("50")).isEqualTo(KshAmount.ofShillings(50))
+        assertThat(KshAmount.parseWholeShillings("1")).isEqualTo(KshAmount(100))
+        assertThat(KshAmount.parseWholeShillings("1300")).isEqualTo(KshAmount(130_000))
+    }
+
+    @Test
+    fun `tolerates whitespace and thousands separators`() {
+        assertThat(KshAmount.parseWholeShillings("  50 ")).isEqualTo(KshAmount.ofShillings(50))
+        assertThat(KshAmount.parseWholeShillings("1,300")).isEqualTo(KshAmount.ofShillings(1300))
+    }
+
+    @Test
+    fun `rejects decimals`() {
+        // The whole point. parse() would happily accept these; entry must not.
+        assertThat(KshAmount.parseWholeShillings("50.50")).isNull()
+        assertThat(KshAmount.parseWholeShillings("50.00")).isNull()
+        assertThat(KshAmount.parseWholeShillings("0.5")).isNull()
+    }
+
+    @Test
+    fun `rejects anything that is not a plain positive number`() {
+        assertThat(KshAmount.parseWholeShillings("")).isNull()
+        assertThat(KshAmount.parseWholeShillings("   ")).isNull()
+        assertThat(KshAmount.parseWholeShillings("-50")).isNull()
+        assertThat(KshAmount.parseWholeShillings("Ksh 50")).isNull()
+        assertThat(KshAmount.parseWholeShillings("fifty")).isNull()
+        assertThat(KshAmount.parseWholeShillings("5e3")).isNull()
+    }
+
+    @Test
+    fun `rejects an amount that would overflow rather than wrapping negative`() {
+        // ofShillings multiplies by 100. Without the guard this wraps to a
+        // negative that could compare equal to something unrelated — and equality
+        // is how every payment is matched.
+        assertThat(KshAmount.parseWholeShillings("99999999999999999999")).isNull()
+        assertThat(KshAmount.parseWholeShillings(Long.MAX_VALUE.toString())).isNull()
+    }
+
+    @Test
+    fun `parseWholeShillings round-trips through format`() {
+        // The editor pre-fills from a stored rule and saves back through this.
+        // If format() ever emitted "50.00", parseWholeShillings would reject the
+        // agent's own unedited price.
+        val amount = KshAmount.parseWholeShillings("50")!!
+        assertThat(amount.format()).isEqualTo("50")
+        assertThat(KshAmount.parseWholeShillings(amount.format())).isEqualTo(amount)
+        assertThat(amount.shillings).isEqualTo(50)
+        assertThat(amount.isWholeShillings).isTrue()
+    }
+
+    @Test
+    fun `a customer payment with cents is not whole shillings`() {
+        // What the agent types is constrained; what a customer sends is not.
+        assertThat(KshAmount(2050).isWholeShillings).isFalse()
+        assertThat(KshAmount(2000).isWholeShillings).isTrue()
+    }
 }
