@@ -1,9 +1,9 @@
 {
-  "versionCode": 4,
-  "versionName": "1.0.3",
-  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/479425945",
-  "sha256": "2cd486db51da3dbb0db8beef52cd773748a1cb6227795f6901b59f657bcd9370",
-  "releaseNotes": "fix(templates): escape the lone `}` in the token regex (crashed on Android ICU)",
+  "versionCode": 5,
+  "versionName": "1.1.0",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/479483881",
+  "sha256": "2570814a1b0b3e7c24c6dd78635b65b5c6285e94afd72c821a75e5437db1c0d0",
+  "releaseNotes": "Bundle categories + per-category price-list variables (v1.1.0) (#9)",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
