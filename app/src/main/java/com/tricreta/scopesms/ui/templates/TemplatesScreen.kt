@@ -15,7 +15,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -88,48 +87,42 @@ fun TemplatesContent(
     val type = TemplateType.entries[safeTab]
     val editor = state.forType(type)
 
-    // The TabRow is the topBar of a nested Scaffold, and the body scrolls as the
-    // Scaffold's content directly, dropping the earlier
-    // `Column { TabRow; Column(weight(1f).verticalScroll) }`.
-    //
-    // NB: unlike this comment used to claim, this is NOT the same shape as Home and
-    // Settings — those are a plain Column with verticalScroll on the passed
-    // modifier, no inner Scaffold. This nested-Scaffold arrangement is Templates'
-    // one structural outlier. It is nonetheless sound: a verticalScroll placed as a
-    // Scaffold body gets a bounded height (the Scaffold content slot is measured
-    // with finite constraints), so there is no infinity-maximum-height measurement
-    // for a nested Column to get wrong. TemplatesScreenTest exercises exactly this
-    // arrangement — the inner Scaffold nested inside an outer Scaffold's content,
-    // fed Modifier.padding(padding) as MainScaffold does — through a real
-    // measure/layout pass and it does not crash.
-    Scaffold(
-        modifier = modifier,
-        topBar = {
-            TabRow(selectedTabIndex = safeTab) {
-                TemplateType.entries.forEachIndexed { index, entry ->
-                    Tab(
-                        selected = safeTab == index,
-                        onClick = { selectedTab = index },
-                        text = {
-                            Text(
-                                stringResource(
-                                    when (entry) {
-                                        TemplateType.UNMATCHED -> R.string.tpl_tab_unmatched
-                                        TemplateType.MATCHED -> R.string.tpl_tab_matched
-                                    },
-                                ),
-                            )
-                        },
-                    )
-                }
+    // NO nested Scaffold — this is now the EXACT shape Home and Settings use: a
+    // single Column with verticalScroll on the passed modifier. Those are the
+    // screens that never force-close; the nested Scaffold here (a Scaffold inside
+    // the app's outer Scaffold) was Templates' one structural outlier, and it still
+    // crashed on the agent's real device even though a Robolectric measure/layout
+    // pass could not reproduce it. So it is dropped entirely: the TabRow is simply
+    // the first item inside the one scroll. One Scaffold and one scroll in the whole
+    // subtree — nothing nested for a real-device measure pass to get wrong. Two tabs
+    // of short content that scroll as a unit is fine UX.
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        TabRow(selectedTabIndex = safeTab) {
+            TemplateType.entries.forEachIndexed { index, entry ->
+                Tab(
+                    selected = safeTab == index,
+                    onClick = { selectedTab = index },
+                    text = {
+                        Text(
+                            stringResource(
+                                when (entry) {
+                                    TemplateType.UNMATCHED -> R.string.tpl_tab_unmatched
+                                    TemplateType.MATCHED -> R.string.tpl_tab_matched
+                                },
+                            ),
+                        )
+                    },
+                )
             }
-        },
-    ) { innerPadding ->
+        }
+
         Column(
             modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .fillMaxWidth()
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {

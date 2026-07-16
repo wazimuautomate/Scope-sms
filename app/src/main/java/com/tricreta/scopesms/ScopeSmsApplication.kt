@@ -2,6 +2,7 @@ package com.tricreta.scopesms
 
 import android.app.Application
 import com.tricreta.scopesms.di.AppContainer
+import com.tricreta.scopesms.diagnostics.CrashReporter
 
 /**
  * Process-level anchor for Scope SMS.
@@ -28,6 +29,11 @@ class ScopeSmsApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // First, so a crash anywhere after this — including one while composing a
+        // screen on a specific OEM device we can't reproduce off-device — leaves a
+        // shareable stack trace instead of a silent force-close. Cheap: it only
+        // installs a handler here and writes on an actual fatal crash.
+        CrashReporter.install(this)
         container.start()
     }
 }

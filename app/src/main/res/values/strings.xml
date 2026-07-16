@@ -163,6 +163,9 @@
     <string name="settings_update_retry">Try again</string>
     <!-- Each update failure gets its own line: what happened and what to do. -->
     <string name="settings_update_err_network">Could not reach the internet. Connect and try again.</string>
+    <string name="settings_crash_title">The app closed unexpectedly</string>
+    <string name="settings_crash_body">A report of what went wrong was saved on this phone. Tap Share to send it to the developer — it shows exactly where the problem is.</string>
+    <string name="settings_crash_share">Share crash report</string>
     <string name="settings_update_err_not_configured">Automatic updates aren\'t set up for this build. You can still install the latest version manually from GitHub.</string>
     <string name="settings_update_err_manifest">Couldn\'t reach the update server. Check your connection and try again.</string>
     <string name="settings_update_err_storage">Not enough free space to download the update. Free up some space and try again.</string>

@@ -1,5 +1,6 @@
 package com.tricreta.scopesms.ui.settings
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,6 +38,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tricreta.scopesms.R
+import com.tricreta.scopesms.diagnostics.CrashReporter
 import com.tricreta.scopesms.domain.settings.ThemePreference
 import com.tricreta.scopesms.domain.sim.SimSelection
 import com.tricreta.scopesms.telephony.SimInfo
@@ -67,6 +69,28 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        // If the app force-closed, its stack trace is waiting here — surfaced at the
+        // very top so the agent can Share it to the developer. This is the only way
+        // to diagnose a crash that reproduces on their handset but not off-device.
+        var crashReport by rememberSaveable { mutableStateOf(CrashReporter.lastReport(context)) }
+        crashReport?.let { report ->
+            CrashReportCard(
+                onShare = {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "Scope SMS crash report")
+                        putExtra(Intent.EXTRA_TEXT, report)
+                    }
+                    context.startActivity(Intent.createChooser(intent, null))
+                },
+                onDismiss = {
+                    CrashReporter.clear(context)
+                    crashReport = null
+                },
+            )
+            HorizontalDivider()
+        }
+
         SectionTitle(stringResource(R.string.settings_replies))
         RepliesSection(
             toggles = state.toggles,
@@ -123,6 +147,42 @@ fun SettingsScreen(
 @Composable
 private fun SectionTitle(text: String) {
     Text(text = text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+}
+
+/**
+ * Shown only when a previous run left a crash report. Lets the agent send us the
+ * exact stack trace from their own phone — the one thing an off-device test can't
+ * give us for a device-specific force-close.
+ */
+@Composable
+private fun CrashReportCard(onShare: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = stringResource(R.string.settings_crash_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = stringResource(R.string.settings_crash_body),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onShare) {
+                    Text(stringResource(R.string.settings_crash_share))
+                }
+                OutlinedButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.dismiss))
+                }
+            }
+        }
+    }
 }
 
 /**
