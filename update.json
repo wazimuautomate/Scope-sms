@@ -1,9 +1,9 @@
 {
-  "versionCode": 3,
-  "versionName": "1.0.2",
-  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/479382459",
-  "sha256": "2121a69117ab36624c57f14890fbea0faf856e6b8d3552586fad355a5892a1a5",
-  "releaseNotes": "fix(templates): remove the nested Scaffold + add an on-device crash catcher",
+  "versionCode": 4,
+  "versionName": "1.0.3",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/479425945",
+  "sha256": "2cd486db51da3dbb0db8beef52cd773748a1cb6227795f6901b59f657bcd9370",
+  "releaseNotes": "fix(templates): escape the lone `}` in the token regex (crashed on Android ICU)",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
