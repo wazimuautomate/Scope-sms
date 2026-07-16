@@ -27,6 +27,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Text
@@ -50,7 +53,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.tricreta.scopesms.R
+import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PricingRule
+
+/** The display label for a bundle category. */
+private fun categoryLabelRes(category: BundleCategory): Int = when (category) {
+    BundleCategory.DATA -> R.string.category_data
+    BundleCategory.MINUTES -> R.string.category_minutes
+    BundleCategory.SMS -> R.string.category_sms
+}
 
 /**
  * The agent's price list — the table every incoming payment is matched against.
@@ -205,6 +216,7 @@ fun RulesScreen(
             draft = draft,
             onAmountChange = { viewModel.updateDraft(amountText = it) },
             onDescriptionChange = { viewModel.updateDraft(description = it) },
+            onCategoryChange = { viewModel.updateDraft(category = it) },
             onSave = viewModel::save,
             onDismiss = viewModel::cancelEditing,
         )
@@ -266,6 +278,11 @@ private fun RuleCard(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(text = rule.bundleDescription, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = stringResource(categoryLabelRes(rule.category)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
                 if (isDuplicate) {
                     Text(
                         text = stringResource(R.string.rules_duplicate_badge),
@@ -292,11 +309,13 @@ private fun RuleCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RuleEditorDialog(
     draft: RuleDraft,
     onAmountChange: (String) -> Unit,
     onDescriptionChange: (String) -> Unit,
+    onCategoryChange: (BundleCategory) -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -341,6 +360,28 @@ private fun RuleEditorDialog(
                     isError = draft.error == RuleInputError.DESCRIPTION_BLANK,
                     singleLine = true,
                 )
+
+                // Which kind of bundle this is. Drives the per-category price-list
+                // variables ({data_offers} etc.) on the unmatched reply.
+                Text(
+                    text = stringResource(R.string.rules_category_label),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    BundleCategory.entries.forEachIndexed { index, category ->
+                        SegmentedButton(
+                            selected = draft.category == category,
+                            onClick = { onCategoryChange(category) },
+                            shape = SegmentedButtonDefaults.itemShape(
+                                index = index,
+                                count = BundleCategory.entries.size,
+                            ),
+                        ) {
+                            Text(stringResource(categoryLabelRes(category)))
+                        }
+                    }
+                }
+
                 errorText?.let {
                     Text(
                         text = it,

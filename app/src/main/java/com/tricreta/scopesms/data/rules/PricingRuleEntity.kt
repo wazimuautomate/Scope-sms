@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.tricreta.scopesms.domain.money.KshAmount
+import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PricingRule
 
 /**
@@ -47,12 +48,26 @@ data class PricingRuleEntity(
 
     @ColumnInfo(defaultValue = "1")
     val isActive: Boolean = true,
+
+    /**
+     * Bundle category, stored by [BundleCategory.name].
+     *
+     * **Nullable on purpose.** The v1→v2 migration adds it with a plain
+     * `ALTER TABLE … ADD COLUMN category TEXT` (no default), so every pre-category
+     * row is NULL. That reads back as [BundleCategory.DEFAULT] via
+     * [BundleCategory.fromName]; new writes always store a non-null name. A
+     * nullable column with no default is what the migration produces exactly, so
+     * Room's runtime schema check passes without the default-value quoting
+     * subtleties a `NOT NULL DEFAULT` column would introduce.
+     */
+    val category: String? = BundleCategory.DEFAULT.name,
 ) {
     fun toDomain(): PricingRule = PricingRule(
         id = id,
         amount = KshAmount(amountCents),
         bundleDescription = bundleDescription,
         isActive = isActive,
+        category = BundleCategory.fromName(category),
     )
 
     companion object {
@@ -61,6 +76,7 @@ data class PricingRuleEntity(
             amountCents = rule.amount.cents,
             bundleDescription = rule.bundleDescription,
             isActive = rule.isActive,
+            category = rule.category.name,
         )
     }
 }

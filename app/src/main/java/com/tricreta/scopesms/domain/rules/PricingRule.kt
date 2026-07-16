@@ -12,12 +12,16 @@ import com.tricreta.scopesms.domain.money.KshAmount
  * @param isActive false hides the rule from matching without deleting it, so
  *   the agent can pause a bundle they've stopped selling and bring it back
  *   later without retyping it.
+ * @param category which kind of bundle this is (data/minutes/sms), so the
+ *   unmatched reply can quote one category at a time. Defaults to
+ *   [BundleCategory.DEFAULT]; pre-category rows migrate to it.
  */
 data class PricingRule(
     val id: Long,
     val amount: KshAmount,
     val bundleDescription: String,
     val isActive: Boolean = true,
+    val category: BundleCategory = BundleCategory.DEFAULT,
 )
 
 /**
