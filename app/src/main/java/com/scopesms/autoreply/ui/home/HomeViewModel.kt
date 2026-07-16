@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -89,7 +91,14 @@ class HomeViewModel(
     )
 
     val uiState: StateFlow<HomeUiState> = combine(
-        container.activityLog.statsForToday(),
+        // Wrapped, not called directly: statsForToday() captures the day boundary
+        // at *call* time and bakes it into the Room query, and it is a fun rather
+        // than a val precisely so re-collecting picks up the new day. Calling it
+        // in this initializer would bind it once for the ViewModel's whole life —
+        // so an app left open overnight would still show yesterday's tiles at 9am
+        // and never correct itself. `flow { emitAll(...) }` re-invokes it on each
+        // subscription, which is what WhileSubscribed gives us on every reopen.
+        flow { emitAll(container.activityLog.statsForToday()) },
         container.settings.notificationToggles,
         container.ruleCache.snapshots,
         container.gatewayCredentials.isConfigured,

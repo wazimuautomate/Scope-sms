@@ -244,8 +244,42 @@ class ScopeSmsGatewayTest {
     }
 
     @Test
-    fun `success without a messageid is not reported as Sent`() = runTest {
+    fun `a response-code 200 with no messageid counts as sent, not failed`() = runTest {
+        // The client's warning: the gateway can confirm delivery without an id.
+        // A body response-code of 200 is a positive delivery signal, so this must
+        // be Sent (with a blank id we can't track) rather than a failure — a
+        // failure here would log a delivered SMS as failed and have the agent
+        // chase a customer who already got their reply.
         enqueueJson(200, """{"response-code":200}""")
+
+        val outcome = gateway.sendSms("0700000000", "hi")
+
+        assertThat(outcome).isInstanceOf(SendOutcome.Sent::class.java)
+    }
+
+    @Test
+    fun `a success whose message mentions the number is not mistaken for invalid phone`() = runTest {
+        // The reported bug, exactly. The gateway returned a real messageid AND a
+        // human message that happened to contain the recipient number; the old
+        // code ran the "phone"/"number" text classifier before checking for the
+        // id, so a delivered SMS came back as InvalidPhone. A delivery signal must
+        // win over the wording.
+        enqueueJson(
+            200,
+            """{"response-code":200,"messageid":"msg-42","message":"Message submitted to number 254700000000"}""",
+        )
+
+        val outcome = gateway.sendSms("0700000000", "hi")
+
+        assertThat(outcome).isInstanceOf(SendOutcome.Sent::class.java)
+        assertThat((outcome as SendOutcome.Sent).messageId).isEqualTo("msg-42")
+    }
+
+    @Test
+    fun `a 200 that is neither sent nor a known error is Unexpected, not silently dropped`() = runTest {
+        // No messageid, no success code, and text we don't recognise. This is the
+        // genuinely-ambiguous case, and it must surface rather than be called sent.
+        enqueueJson(200, """{"foo":"bar"}""")
 
         val reason = gateway.sendSms("0700000000", "hi").failureReason()
 

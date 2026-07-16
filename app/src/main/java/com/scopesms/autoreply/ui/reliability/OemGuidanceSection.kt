@@ -117,17 +117,19 @@ fun OemGuidanceSection(
                 }
             }
 
-            if (canOpenSettings) {
-                Button(onClick = onOpenSettings) {
-                    Text(
-                        text = guidance.settingsAppName
-                            ?.let { "Open $it" }
-                            ?: "Open settings",
-                    )
-                }
+            // Always shown. Even when the vendor's own screen can't be reached,
+            // [OemSettingsLauncher.open] falls back to this app's system settings
+            // page, so the button always lands somewhere useful. A dead button
+            // was the reported bug; `canOpenSettings` now only picks the label.
+            Button(onClick = onOpenSettings) {
+                Text(
+                    text = if (canOpenSettings) {
+                        guidance.settingsAppName?.let { "Open $it" } ?: "Open settings"
+                    } else {
+                        "Open app settings"
+                    },
+                )
             }
-            // No button when nothing resolves — and no apology either. The steps
-            // above are the real path; the button was only ever a shortcut.
         }
     }
 }

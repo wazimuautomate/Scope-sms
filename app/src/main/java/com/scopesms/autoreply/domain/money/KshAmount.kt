@@ -122,6 +122,13 @@ value class KshAmount(val cents: Long) : Comparable<KshAmount> {
             val (wholeRaw, fractionRaw) = match.destructured
 
             val whole = wholeRaw.replace(",", "").toLongOrNull() ?: return null
+            // Same guard as parseWholeShillings, and for the same reason: `whole
+            // * 100` on an absurd figure wraps to a negative that could compare
+            // equal to an unrelated rule, and equality is how every payment is
+            // matched. Not reachable from a real M-Pesa SMS — but this parser's
+            // whole job is to be handed text nobody vetted.
+            if (whole > MAX_SHILLINGS) return null
+
             // "20.5" means 20 shillings 50 cents, not 20 shillings 5 cents.
             val fraction = if (fractionRaw.isEmpty()) 0L else fractionRaw.padEnd(2, '0').toLong()
 

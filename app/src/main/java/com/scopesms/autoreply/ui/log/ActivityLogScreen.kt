@@ -108,6 +108,13 @@ fun ActivityLogScreen(
         }
 
         LazyColumn(
+            // weight(1f) for the same reason as TemplatesScreen: this LazyColumn
+            // is nested inside the outer Column, which measures it with infinite
+            // height, and a lazy list rejects that with an IllegalStateException.
+            // It survived until now only because the empty-log early-return above
+            // meant it was never composed — it would have crashed the first time
+            // the agent had a real payment to show. Found by inspection, not luck.
+            modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {

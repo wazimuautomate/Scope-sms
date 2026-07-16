@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** One flow's editor state. */
@@ -136,16 +137,20 @@ class TemplatesViewModel(
         val body = drafts.value[type] ?: return
         viewModelScope.launch {
             container.messageTemplateRepository.save(type, body)
-            // Drop the draft so the editor follows the cache again — otherwise a
-            // later edit from another device/screen wouldn't show.
-            drafts.value = drafts.value - type
+            // Drop the draft so the editor follows the cache again — but only if
+            // it still holds what we just saved. The agent can keep typing while
+            // the Room write is in flight, and dropping unconditionally would
+            // silently revert those keystrokes to the saved text in front of them.
+            drafts.update { current -> if (current[type] == body) current - type else current }
         }
     }
 
     fun resetToDefault(type: TemplateType) {
         viewModelScope.launch {
             container.messageTemplateRepository.resetToDefault(type)
-            drafts.value = drafts.value - type
+            // Unconditional here, unlike save(): reset is an explicit "throw away
+            // what's in the editor", so discarding a draft is the intent.
+            drafts.update { it - type }
         }
     }
 

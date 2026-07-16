@@ -51,6 +51,9 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
         container.applicationScope.launch {
             try {
+                // Re-post the "watching" reassurance — the notification does not
+                // survive a reboot, and this is the first chance to bring it back.
+                container.watchingNotification.show()
                 container.reliabilityNotifier.notifyOfIssues(container.reliabilityInspector.check())
             } catch (e: Exception) {
                 // A crash in a boot receiver is a crash dialog on the agent's

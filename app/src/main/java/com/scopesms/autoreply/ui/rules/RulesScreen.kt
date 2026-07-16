@@ -1,5 +1,7 @@
 package com.scopesms.autoreply.ui.rules
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,9 +16,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,18 +28,27 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.scopesms.autoreply.R
 import com.scopesms.autoreply.domain.rules.PricingRule
 
@@ -47,15 +60,91 @@ import com.scopesms.autoreply.domain.rules.PricingRule
  * Kenyan bundle costs "Ksh 50", not "Ksh 50.00", and the client asked for plain
  * integers.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RulesScreen(
     modifier: Modifier = Modifier,
     viewModel: RulesViewModel = viewModel(factory = RulesViewModel.Factory),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var message by remember { mutableStateOf<String?>(null) }
+
+    // SAF, not FileProvider: no manifest wiring, no permissions, and the agent
+    // saves/opens through the system picker they already know.
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        val json = viewModel.buildExport(System.currentTimeMillis())
+        if (uri == null || json == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use {
+                        it.write(json.toByteArray())
+                    }
+                }.isSuccess
+            }
+            message = if (ok) {
+                context.getString(R.string.rules_export_ok)
+            } else {
+                context.getString(R.string.rules_export_failed)
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                }.getOrNull()
+            }
+            if (text == null) {
+                message = context.getString(R.string.rules_import_unreadable)
+                return@launch
+            }
+            viewModel.applyImport(text) { summary ->
+                message = when {
+                    summary == null -> context.getString(R.string.rules_import_unreadable)
+                    summary.added == 0 ->
+                        context.getString(R.string.rules_import_none, summary.skippedDuplicates)
+                    else -> context.getString(R.string.rules_import_ok, summary.added, summary.skippedDuplicates)
+                }
+            }
+        }
+    }
 
     Scaffold(
         modifier = modifier,
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.nav_rules)) },
+                actions = {
+                    // Only offer Share when there's something to share.
+                    if (state.rules.isNotEmpty()) {
+                        IconButton(onClick = {
+                            exportLauncher.launch(context.getString(R.string.rules_export_filename))
+                        }) {
+                            Icon(Icons.Default.Share, contentDescription = stringResource(R.string.rules_share))
+                        }
+                    }
+                    // A labelled button, not an icon: there is no unambiguous
+                    // "import" glyph in material-icons-core, and Add would read as
+                    // the same action as the FAB.
+                    TextButton(onClick = {
+                        // Any JSON — SAF filters loosely; the codec validates.
+                        importLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                    }) {
+                        Text(stringResource(R.string.rules_import))
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = viewModel::startAdding,
@@ -69,30 +158,46 @@ fun RulesScreen(
                 DuplicateWarning(count = state.duplicateAmounts.size)
             }
 
-            when {
-                // Distinct from "no rules": before the cache loads we don't know
-                // yet, and claiming an empty price list would be a lie that
-                // flashes on every open.
-                !state.loaded -> Unit
+            // The scrolling area gets weight(1f) so it is measured with a finite
+            // height. A LazyColumn placed straight into a Column is handed an
+            // infinite max height and throws "measured with an infinity maximum
+            // height" — the same defect that crashed the Templates tab. It hadn't
+            // bitten here only because an empty price list never composes the
+            // list; it would have the moment the agent added a bundle.
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when {
+                    // Distinct from "no rules": before the cache loads we don't
+                    // know yet, and claiming an empty list would flash on open.
+                    !state.loaded -> Unit
 
-                state.rules.isEmpty() -> EmptyState()
+                    state.rules.isEmpty() -> EmptyState()
 
-                else -> LazyColumn(
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(state.rules, key = { it.id }) { rule ->
-                        RuleCard(
-                            rule = rule,
-                            isDuplicate = rule.amount in state.duplicateAmounts,
-                            onEdit = { viewModel.startEditing(rule) },
-                            onToggleActive = { viewModel.setActive(rule, it) },
-                            onDelete = { viewModel.delete(rule) },
-                        )
+                    else -> LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(state.rules, key = { it.id }) { rule ->
+                            RuleCard(
+                                rule = rule,
+                                isDuplicate = rule.amount in state.duplicateAmounts,
+                                onEdit = { viewModel.startEditing(rule) },
+                                onToggleActive = { viewModel.setActive(rule, it) },
+                                onDelete = { viewModel.delete(rule) },
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    message?.let { text ->
+        AlertDialog(
+            onDismissRequest = { message = null },
+            confirmButton = { TextButton(onClick = { message = null }) { Text(stringResource(R.string.dismiss)) } },
+            text = { Text(text) },
+        )
     }
 
     state.editing?.let { draft ->

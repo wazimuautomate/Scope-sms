@@ -141,6 +141,29 @@ class OutboundQueueRetryTest {
     }
 
     @Test
+    fun `claiming a job burns an attempt, so a send cancelled mid-flight cannot retry forever`() = runTest {
+        // The bug this guards: markSending used to only set the status, and the
+        // attempt was counted when the gateway answered. A send cancelled before
+        // it answered — WorkManager stopping the worker, the window expiring,
+        // process death, all routine on 2G — left attemptCount at 0, so
+        // releaseStuckJobs re-queued it and it re-sent the same SMS forever, the
+        // customer texted and the agent charged each time. Counting at claim time
+        // makes the budget bound the damage however the attempt ends.
+        val store = FakeOutboundJobStore()
+        val queue = queueOf(store, Responds { accepted() })
+        enqueueOne(queue)
+        val id = store.allJobs().single().id
+
+        // Three process deaths mid-send: claim, then die before the reply.
+        repeat(3) {
+            store.markSending(id)
+            store.releaseStuckJobs()
+        }
+
+        assertThat(store.allJobs().single().attemptCount).isEqualTo(3)
+    }
+
+    @Test
     fun `one failing job does not strand the jobs behind it`() = runTest {
         val store = FakeOutboundJobStore()
         val calls = AtomicInteger(0)

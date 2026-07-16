@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.scopesms.autoreply.di.AppContainer
 import com.scopesms.autoreply.domain.money.KshAmount
+import com.scopesms.autoreply.domain.rules.PriceListCodec
 import com.scopesms.autoreply.domain.rules.PricingRule
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -130,8 +131,11 @@ class RulesViewModel(
             draft.amountText.isBlank() -> RuleInputError.AMOUNT_INVALID
             // Order matters: a decimal is more specific than "invalid", and it's
             // the mistake an agent is far more likely to make.
-            draft.amountText.contains('.') || draft.amountText.contains(',') ->
-                RuleInputError.AMOUNT_NOT_WHOLE
+            //
+            // Only '.' — a thousands separator is not cents. parseWholeShillings
+            // strips commas and accepts "1,000", so rejecting it here would block
+            // a perfectly good price and tell the agent it had cents in it.
+            draft.amountText.contains('.') -> RuleInputError.AMOUNT_NOT_WHOLE
             amount == null -> RuleInputError.AMOUNT_INVALID
             amount.cents == 0L -> RuleInputError.AMOUNT_ZERO
             draft.description.isBlank() -> RuleInputError.DESCRIPTION_BLANK
@@ -173,6 +177,65 @@ class RulesViewModel(
 
     fun delete(rule: PricingRule) {
         viewModelScope.launch { container.pricingRuleRepository.delete(rule.id) }
+    }
+
+    // ---- Export / import (share prices between phones) ----------------------
+
+    /**
+     * The current price list as a shareable JSON document, or null if there is
+     * nothing to export.
+     *
+     * @param now epoch millis, from the caller so this stays free of a clock.
+     */
+    fun buildExport(now: Long): String? {
+        val rules = uiState.value.rules
+        if (rules.isEmpty()) return null
+        return PriceListCodec.export(rules, now)
+    }
+
+    /** What an import did, for the screen to report. */
+    data class ImportSummary(val added: Int, val skippedDuplicates: Int)
+
+    /**
+     * Reads [text] and adds its prices, skipping any whose amount already exists.
+     *
+     * @param onResult called on the main thread with the outcome: the summary on
+     *   success, or null if the file wasn't a readable price list.
+     */
+    fun applyImport(text: String, onResult: (ImportSummary?) -> Unit) {
+        when (val result = PriceListCodec.import(text)) {
+            is PriceListCodec.ImportResult.Loaded -> viewModelScope.launch {
+                // Merge, not replace: importing must never wipe prices the agent
+                // already has. Skip any amount that already exists so a re-import
+                // is idempotent rather than piling up duplicates.
+                // Mutable so a file that lists the same amount twice adds it once.
+                val existing = uiState.value.rules.map { it.amount }.toMutableSet()
+                var added = 0
+                var skipped = 0
+                for (row in result.rules) {
+                    if (!existing.add(row.amount)) {
+                        skipped++
+                        continue
+                    }
+                    container.pricingRuleRepository.upsert(
+                        PricingRule(
+                            id = 0,
+                            amount = row.amount,
+                            bundleDescription = row.bundleDescription,
+                            isActive = row.isActive,
+                        ),
+                    )
+                    added++
+                }
+                onResult(ImportSummary(added = added, skippedDuplicates = skipped))
+            }
+
+            // Both "not ours" and "too new" collapse to null for the caller; the
+            // screen shows a single "couldn't read that file" message either way.
+            PriceListCodec.ImportResult.NotAPriceList,
+            is PriceListCodec.ImportResult.UnsupportedVersion,
+            -> onResult(null)
+        }
     }
 
     companion object {

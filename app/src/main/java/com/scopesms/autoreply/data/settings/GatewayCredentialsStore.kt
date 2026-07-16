@@ -104,10 +104,33 @@ class GatewayCredentialsStore(
      */
     override suspend fun credentials(): GatewayCredentials? = withContext(Dispatchers.IO) {
         val prefs = dataStore.data.safe().first()
-        val apiKey = prefs[KEY_API_KEY]?.let { decryptOrNull(it) } ?: return@withContext null
-        val senderId = prefs[KEY_SENDER_ID]?.let { decryptOrNull(it) } ?: return@withContext null
+        val storedKey = prefs[KEY_API_KEY]
+        val storedSender = prefs[KEY_SENDER_ID]
 
-        if (apiKey.isBlank() || senderId.isBlank()) return@withContext null
+        // Nothing stored: the agent hasn't finished setup. A normal state.
+        if (storedKey == null || storedSender == null) return@withContext null
+
+        val apiKey = decryptOrNull(storedKey)
+        val senderId = decryptOrNull(storedSender)
+
+        if (apiKey.isNullOrBlank() || senderId.isNullOrBlank()) {
+            // Stored but unreadable — the Keystore key is gone (an OEM Keystore
+            // bug on exactly the handsets this class's doc names, or an app-data
+            // restore onto a phone that can't decrypt it).
+            //
+            // Clearing is not tidying up; it is the entire recovery path. Left
+            // in place, `isConfigured` stays true because the *bytes* are still
+            // there, so Home shows no warning, Settings shows a masked key, and
+            // the app insists it is set up while every single send fails
+            // terminally on InvalidApiKey. Dropping the value flips isConfigured
+            // to false, which surfaces the "gateway not set up" prompt and gets
+            // the agent to re-enter it — the outcome GatewayCredentialsProvider
+            // requires and this class promises.
+            Log.e(TAG, "Stored gateway credentials are unreadable; cleared for re-entry.")
+            clear()
+            return@withContext null
+        }
+
         GatewayCredentials(apiKey = apiKey, senderId = senderId)
     }
 
@@ -159,11 +182,13 @@ class GatewayCredentialsStore(
     private fun decryptOrNull(stored: String): String? = try {
         crypto.decrypt(stored)
     } catch (e: GeneralSecurityException) {
-        Log.e(TAG, "Stored gateway credentials could not be decrypted; clearing for re-entry.")
+        // Never log the exception's message — a Keystore provider is entitled to
+        // put the value in it.
+        Log.e(TAG, "Could not decrypt gateway credentials: ${e.javaClass.simpleName}")
         null
     } catch (e: IllegalArgumentException) {
         // Base64 that isn't. Same treatment: unusable is unusable.
-        Log.e(TAG, "Stored gateway credentials are malformed; clearing for re-entry.")
+        Log.e(TAG, "Stored gateway credentials are malformed.")
         null
     }
 

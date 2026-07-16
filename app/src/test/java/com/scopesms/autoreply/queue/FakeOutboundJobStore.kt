@@ -41,8 +41,14 @@ class FakeOutboundJobStore : OutboundJobStore {
             .take(limit)
     }
 
+    /**
+     * Mirrors [RoomOutboundJobStore]: the attempt is burned **at claim time**, so
+     * a send that is cancelled and never returns still counts against the budget.
+     * A fake that only set the status would let these tests pass while the real
+     * store re-sent the same SMS forever.
+     */
     override suspend fun markSending(id: Long) = update(id) {
-        it.copy(status = OutboundJobStatus.SENDING)
+        it.copy(status = OutboundJobStatus.SENDING, attemptCount = it.attemptCount + 1)
     }
 
     override suspend fun markSent(id: Long, gatewayMessageId: String) = update(id) {
@@ -53,20 +59,14 @@ class FakeOutboundJobStore : OutboundJobStore {
         )
     }
 
+    // Neither of these increments: markSending already did.
+
     override suspend fun markRetryable(id: Long, error: String) = update(id) {
-        it.copy(
-            status = OutboundJobStatus.PENDING,
-            attemptCount = it.attemptCount + 1,
-            lastError = error,
-        )
+        it.copy(status = OutboundJobStatus.PENDING, lastError = error)
     }
 
     override suspend fun markFailed(id: Long, error: String) = update(id) {
-        it.copy(
-            status = OutboundJobStatus.FAILED,
-            attemptCount = it.attemptCount + 1,
-            lastError = error,
-        )
+        it.copy(status = OutboundJobStatus.FAILED, lastError = error)
     }
 
     override suspend fun releaseStuckJobs(): Int = mutex.withLock {
