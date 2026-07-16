@@ -252,6 +252,17 @@ dependencies {
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
 
+    // Compose UI test, run on the JVM through Robolectric. The BOM aligns the
+    // ui-test artifacts with the rest of Compose. ui-test-manifest is debug-only
+    // (it merges the empty host activity createComposeRule() launches into the
+    // debug manifest and must never reach the release APK). Together these let
+    // TemplatesScreenTest run Compose's real measure/layout pass off-device — the
+    // one thing 276 pure-JVM tests could not do, and where the Messages-tab crash
+    // has hidden for three rounds.
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+
     // Coordinate renamed in OkHttp 5.x — mockwebserver3-junit4, not the old
     // com.squareup.okhttp3:mockwebserver (see memory.md).
     testImplementation(libs.mockwebserver3.junit4)

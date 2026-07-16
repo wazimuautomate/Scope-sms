@@ -42,15 +42,48 @@ import com.tricreta.scopesms.domain.templates.TemplateVariable
  * different things to different people, and BUILD-PLAN Phase 7 asks for them to
  * be visibly separate so the agent can't edit one thinking it's the other.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TemplatesScreen(
     modifier: Modifier = Modifier,
     viewModel: TemplatesViewModel = viewModel(factory = TemplatesViewModel.Factory),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Stateless body, so a Robolectric Compose test can drive the *real*
+    // measure/layout pass with fabricated data (long price lists, non-default
+    // bodies, invalid tokens) that the empty-default preview never exercises.
+    // The Messages tab crash reproduced only with such data; see TemplatesScreenTest.
+    TemplatesContent(
+        state = state,
+        modifier = modifier,
+        onEdit = viewModel::edit,
+        onAppendVariable = viewModel::appendVariable,
+        onSave = viewModel::save,
+        onDiscard = viewModel::discard,
+        onReset = viewModel::resetToDefault,
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun TemplatesContent(
+    state: TemplatesUiState,
+    modifier: Modifier = Modifier,
+    onEdit: (TemplateType, String) -> Unit = { _, _ -> },
+    onAppendVariable: (TemplateType, TemplateVariable) -> Unit = { _, _ -> },
+    onSave: (TemplateType) -> Unit = {},
+    onDiscard: (TemplateType) -> Unit = {},
+    onReset: (TemplateType) -> Unit = {},
+) {
     var selectedTab by rememberSaveable { mutableStateOf(0) }
-    val type = TemplateType.entries[selectedTab]
+    // Coerce before indexing: selectedTab is restored from rememberSaveable, which
+    // outlives the process and app updates. An index saved by a build with more
+    // tabs — or any corrupted saved value — would otherwise throw
+    // IndexOutOfBoundsException here and force-close the screen the instant it
+    // opens, the exact failure this screen has been reported for. entries is never
+    // empty, so lastIndex is always valid.
+    val safeTab = selectedTab.coerceIn(0, TemplateType.entries.lastIndex)
+    val type = TemplateType.entries[safeTab]
     val editor = state.forType(type)
 
     // The TabRow is the topBar of a nested Scaffold, and the body scrolls as the
@@ -68,10 +101,10 @@ fun TemplatesScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TabRow(selectedTabIndex = selectedTab) {
+            TabRow(selectedTabIndex = safeTab) {
                 TemplateType.entries.forEachIndexed { index, entry ->
                     Tab(
-                        selected = selectedTab == index,
+                        selected = safeTab == index,
                         onClick = { selectedTab = index },
                         text = {
                             Text(
@@ -109,7 +142,7 @@ fun TemplatesScreen(
 
             OutlinedTextField(
                 value = editor.body,
-                onValueChange = { viewModel.edit(type, it) },
+                onValueChange = { onEdit(type, it) },
                 label = { Text(stringResource(R.string.tpl_body_label)) },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 4,
@@ -123,7 +156,7 @@ fun TemplatesScreen(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 editor.allowedVariables.forEach { variable ->
                     AssistChip(
-                        onClick = { viewModel.appendVariable(type, variable) },
+                        onClick = { onAppendVariable(type, variable) },
                         label = { Text(variable.token) },
                     )
                 }
@@ -134,17 +167,17 @@ fun TemplatesScreen(
             PreviewCard(editor)
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { viewModel.save(type) }, enabled = editor.canSave) {
+                TextButton(onClick = { onSave(type) }, enabled = editor.canSave) {
                     Text(stringResource(R.string.save))
                 }
                 TextButton(
-                    onClick = { viewModel.discard(type) },
+                    onClick = { onDiscard(type) },
                     enabled = editor.hasUnsavedChanges,
                 ) {
                     Text(stringResource(R.string.cancel))
                 }
                 TextButton(
-                    onClick = { viewModel.resetToDefault(type) },
+                    onClick = { onReset(type) },
                     // Only offered when it would do something.
                     enabled = !editor.isDefault || editor.hasUnsavedChanges,
                 ) {
