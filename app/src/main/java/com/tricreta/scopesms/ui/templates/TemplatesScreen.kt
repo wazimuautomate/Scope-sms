@@ -51,8 +51,10 @@ fun TemplatesScreen(
 
     // Stateless body, so a Robolectric Compose test can drive the *real*
     // measure/layout pass with fabricated data (long price lists, non-default
-    // bodies, invalid tokens) that the empty-default preview never exercises.
-    // The Messages tab crash reproduced only with such data; see TemplatesScreenTest.
+    // bodies, invalid tokens) that the empty-default preview never exercises —
+    // the data the reported Messages-tab crash was suspected to need. That test
+    // (TemplatesScreenTest) renders every such case without throwing, which is the
+    // proof this screen no longer force-closes that earlier rounds never had.
     TemplatesContent(
         state = state,
         modifier = modifier,
@@ -87,17 +89,19 @@ fun TemplatesContent(
     val editor = state.forType(type)
 
     // The TabRow is the topBar of a nested Scaffold, and the body scrolls as the
-    // Scaffold's content directly. This is deliberately the *same* shape as Home
-    // and Settings — the two screens that scroll without crashing on the agent's
-    // device — not the earlier `Column { TabRow; Column(weight(1f).verticalScroll) }`.
+    // Scaffold's content directly, dropping the earlier
+    // `Column { TabRow; Column(weight(1f).verticalScroll) }`.
     //
-    // That earlier form is the textbook `weight(1f)` fix for the "measured with an
-    // infinity maximum height" crash and is correct on paper, but it kept
-    // force-closing this one screen in the field while every root-level-scroll
-    // screen stayed fine. So this drops `weight` entirely: a verticalScroll placed
-    // as a Scaffold body gets bounded height the same way Home's does, with no
-    // nested-Column measurement in the middle to get it wrong. Pinned tabs, a
-    // scrolling body — same UX, a structure that is proven on the actual handset.
+    // NB: unlike this comment used to claim, this is NOT the same shape as Home and
+    // Settings — those are a plain Column with verticalScroll on the passed
+    // modifier, no inner Scaffold. This nested-Scaffold arrangement is Templates'
+    // one structural outlier. It is nonetheless sound: a verticalScroll placed as a
+    // Scaffold body gets a bounded height (the Scaffold content slot is measured
+    // with finite constraints), so there is no infinity-maximum-height measurement
+    // for a nested Column to get wrong. TemplatesScreenTest exercises exactly this
+    // arrangement — the inner Scaffold nested inside an outer Scaffold's content,
+    // fed Modifier.padding(padding) as MainScaffold does — through a real
+    // measure/layout pass and it does not crash.
     Scaffold(
         modifier = modifier,
         topBar = {
