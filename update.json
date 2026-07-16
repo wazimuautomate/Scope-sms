@@ -1,9 +1,9 @@
 {
-  "versionCode": 1,
-  "versionName": "1.0.0",
-  "apkUrl": "https://github.com/wazimuautomate/Scope-sms/releases/download/v1.0.0/scope-sms-release-v1.0.0.apk",
-  "sha256": "bacf5aa8519ad315ff442bcee5f7faf68cc5399f81b44d8323a2f11075ed3a45",
-  "releaseNotes": "Scope SMS 1.0.0 — first permanent release (com.tricreta.scopesms)",
+  "versionCode": 2,
+  "versionName": "1.0.1",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/479326365",
+  "sha256": "ed25d1ab8684efc4ee4ea77e175e9a6cee80c623d9cf9f15c6360635fffb9d9e",
+  "releaseNotes": "docs: record round-3 crash investigation + private-repo updater fix",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
