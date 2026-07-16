@@ -34,6 +34,70 @@ client.** Nothing is 🟡 because it was left half-finished.
 
 ---
 
+## 🔴 Release identity & in-app updates (2026-07-16) — supersedes earlier release notes
+
+A client-driven pivot to a permanent, self-updating private distribution. This
+section overrides the pre-pivot notes below about `com.scopesms.autoreply`,
+`0.9.0`, the `SIGNING_*` secrets, and the rolling "testing" pre-release.
+
+### App identity is now permanent — `com.tricreta.scopesms`
+`applicationId` + `namespace`. The old `com.scopesms.autoreply` is retired.
+Because it's a **new package**, the agent does **one** uninstall of the old app,
+then updates are seamless forever. The rename moved source/test/androidTest trees
+and the Room schema dir (`app/schemas/com.tricreta.scopesms.data.AppDatabase`)
+with `git mv`. `ArchitectureGuardTest` asserts the base id **after stripping
+`.debug`** — unit tests run the debug variant, whose id carries the suffix.
+
+### versionCode 1 / versionName 1.0.0
+Reset from 3/0.9.0. Safe because the new package has zero installs. **versionCode
+only ever increases**; `release.yml` fails a tag whose versionCode isn't strictly
+greater than the one published in `main:update.json`.
+
+### Debug ≠ release, and no debug distribution
+Debug: `applicationIdSuffix ".debug"`, label **Scope SMS Debug**, default debug
+key — coexists with the real app, never shipped. The client was explicit: "no
+debug apks, real apps." `build.yml` no longer publishes anything (verification
+only); real APKs come from tags via `release.yml`.
+
+### Keystore REUSED, not regenerated — alias `scope-sms`
+Client chose to keep the `scope-sms` keystore from the prior session (they hold
+the base64 + password). CI secrets renamed to `ANDROID_KEYSTORE_BASE64 /
+ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS (=scope-sms) / ANDROID_KEY_PASSWORD`.
+**`build.gradle.kts` env vars renamed to match** (`ANDROID_KEYSTORE_PATH`, …). The
+whole point still holds: whatever signs 1.0.0 must sign every update. README has a
+from-scratch fallback — safe because no signed release has shipped under the new
+package yet.
+
+### In-app updater rebuilt: download → verify → install (was: open browser)
+Reads `update.json` at `BuildConfig.UPDATE_MANIFEST_URL`
+(`raw.githubusercontent.com/wazimuautomate/Scope-sms/main/update.json`), compares
+by **versionCode**. Pure/JVM-tested core: `domain/update/UpdateResolver`
+(versionCode compare + forced logic), `Sha256`, `SignatureMatch`. Android engine
+`update/AppUpdater` (OkHttp streaming + incremental SHA-256 to `cacheDir/updates`,
+package + signing-cert verify, `ACTION_VIEW`+FileProvider install, unknown-sources
+grant). UI `ui/update/{UpdateViewModel,UpdateSection}`.
+
+Gotchas locked in for next time:
+- **`getPackageArchiveInfo` does not set `applicationInfo.sourceDir/publicSourceDir`**
+  — signature reads return null until you point them at the archive path. Load-
+  bearing; without it every cert check silently CANT_VERIFYs.
+- **Signature CANT_VERIFY is a soft proceed** (the OS installer enforces sigs
+  anyway); only a *readable* mismatch hard-blocks. Some low-end OEM ROMs fail to
+  read archive certs even for valid APKs.
+- `lint { abortOnError = false; checkReleaseBuilds = false }` — a pre-existing
+  warning must not block cutting a release fix. Lint still runs + reports in CI.
+  Tighten to gating once a `lint-baseline.xml` is captured.
+- `update.json` is seeded at repo root as a **versionCode 0 placeholder** so the
+  raw URL resolves without colliding with the strictly-increasing guard; the first
+  `v1.0.0` release overwrites it with the real manifest.
+
+### Device-only, still unproven (as ever, needs a handset)
+The install intent + system-installer confirmation, the unknown-sources grant
+round-trip, and real signing-cert enforcement at install. JVM covers the compare/
+verify *decisions*, not the platform behaviour.
+
+---
+
 ## 🔴 Open — needs the client, not a session
 
 ### 1. Real M-Pesa sample messages — STILL ONE

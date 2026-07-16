@@ -4,6 +4,71 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-16 — Permanent identity, signed releases & in-app updater (feature branch)
+
+Branch `feature/tricreta-release-and-updates`. A client-driven pivot to a
+permanent, self-updating private distribution. CI-verified (no full local JDK
+this session; CI is the source of truth).
+
+### Package migration → `com.tricreta.scopesms`
+`applicationId` + `namespace` moved from `com.scopesms.autoreply` (406 refs / 110
+files) via `git mv` of the source/test/androidTest trees + the Room schema dir
+(`app/schemas/com.tricreta.scopesms.data.AppDatabase`), then a scoped
+string-replace. `ArchitectureGuardTest` now asserts the base id after stripping
+the debug suffix. **Consequence:** a one-time uninstall of the old
+`com.scopesms.autoreply` app on the agent's phone (different package can't update
+in place); after that, seamless forever.
+
+### Versioning reset
+`versionCode 3 / 0.9.0` → **`versionCode 1 / versionName 1.0.0`**. Safe: the new
+package has zero installs, so there is nothing to be monotonic against yet.
+
+### Debug/release split ("real apps, no debug apks")
+Debug now `applicationIdSuffix ".debug"` + label **Scope SMS Debug**, default
+debug key, never distributed. Removed the old "sign debug with the release key"
+hack and the rolling **testing pre-release** from `build.yml` — `build.yml` is
+verification-only (tests + lint + debug artifact), `contents: read`. Real APKs
+come only from tags.
+
+### Signing / CI secrets renamed to `ANDROID_*`
+`build.gradle.kts` + `release.yml` now read `ANDROID_KEYSTORE_BASE64 /
+ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD`. **Keystore
+reused, not regenerated** (client's choice): alias stays `scope-sms`. README
+documents backup + a from-scratch fallback (safe, since no signed release has
+shipped under the new package).
+
+### `release.yml` (tag `v*`)
+tests + lint → tag↔versionName guard → **versionCode-strictly-increasing guard**
+(reads `main:update.json`) → sign → `apksigner verify` → SHA-256 → publish Release
+with `scope-sms-release-vX.Y.Z.apk` → generate `update.json` and commit it to
+`main` (also attached to the Release as a fallback).
+
+### In-app updater — rebuilt from browser-open to full download/verify/install
+- Reads `update.json` (`BuildConfig.UPDATE_MANIFEST_URL`, raw main URL), compares
+  by **versionCode**.
+- OkHttp streaming download to `cacheDir/updates/` with incremental SHA-256 and %
+  progress; cancellable; separate long-timeout client.
+- Verifies SHA-256 + package name (`com.tricreta.scopesms`) + signing cert (with
+  the `getPackageArchiveInfo` sourceDir gotcha; unreadable cert = soft proceed,
+  readable mismatch = hard block); rejects+deletes invalid.
+- Installs via `ACTION_VIEW` + `FileProvider` `content://` URI +
+  `REQUEST_INSTALL_PACKAGES`; handles the "install unknown apps" grant
+  (`canRequestPackageInstalls` → `ACTION_MANAGE_UNKNOWN_APP_SOURCES`, re-check on
+  return). Never silent.
+- New: `domain/update/{UpdateResolver,Sha256,SignatureMatch}` (pure, JVM-tested),
+  `network/UpdateManifestClient`, `update/{AppUpdater,UpdateFlowState}`,
+  `ui/update/{UpdateViewModel,UpdateSection}`, `res/xml/file_paths.xml`.
+  Retired `network/UpdateChecker` + `domain/update/AppVersion`
+  (`UpdateStatus`/`UpdateCheck`) + `UpdateCheckTest`.
+
+### Still needs the agent
+- Add the four `ANDROID_*` secrets, then tag **`v1.0.0`** for the first signed
+  release + first real `update.json`.
+- Uninstall the old `com.scopesms.autoreply` app once; install `1.0.0`.
+- Device pass: the install/permission/cert path can only be proven on a handset.
+
+---
+
 ## 2026-07-16 — Round-2 device-testing fixes + real versioning 🟡 (feature branch)
 
 Eight items back from the agent's second real-device test. Fixed on a feature
