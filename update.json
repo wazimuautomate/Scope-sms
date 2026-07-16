@@ -1,9 +1,9 @@
 {
-  "versionCode": 0,
-  "versionName": "0.0.0",
-  "apkUrl": "",
-  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-  "releaseNotes": "Placeholder. The first tagged release (v1.0.0) overwrites this with the real manifest automatically — see .github/workflows/release.yml.",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "apkUrl": "https://github.com/wazimuautomate/Scope-sms/releases/download/v1.0.0/scope-sms-release-v1.0.0.apk",
+  "sha256": "bacf5aa8519ad315ff442bcee5f7faf68cc5399f81b44d8323a2f11075ed3a45",
+  "releaseNotes": "Scope SMS 1.0.0 — first permanent release (com.tricreta.scopesms)",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
