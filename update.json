@@ -1,9 +1,9 @@
 {
-  "versionCode": 7,
-  "versionName": "1.2.0",
-  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/481384041",
-  "sha256": "184d27e9f4488d3484c472df374d09d87e27675f8ed4725698a70e9ae8e9a7a9",
-  "releaseNotes": "v1.2.0 (versionCode 7): name variables, bundle purchase-limit, softer failure styling, activity log copy menu",
+  "versionCode": 8,
+  "versionName": "1.3.0",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/481730561",
+  "sha256": "fc69438c2d4782125845ed1fc2b9f0c4abb543ce70aa85b55ae8607e935ebdb5",
+  "releaseNotes": "v1.3.0 (versionCode 8): whitelist additional trusted M-Pesa senders",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
