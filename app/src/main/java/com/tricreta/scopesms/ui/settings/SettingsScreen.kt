@@ -107,6 +107,17 @@ fun SettingsScreen(
         )
 
         HorizontalDivider()
+        SectionTitle(stringResource(R.string.settings_trusted_senders))
+        TrustedSendersSection(
+            senders = state.trustedSenders,
+            input = state.trustedSenderInput,
+            canAdd = state.canAddTrustedSender,
+            onInputChange = viewModel::updateTrustedSenderInput,
+            onAdd = viewModel::addTrustedSender,
+            onRemove = viewModel::removeTrustedSender,
+        )
+
+        HorizontalDivider()
         SectionTitle(stringResource(R.string.settings_gateway))
         GatewaySection(state = state, viewModel = viewModel)
 
@@ -305,6 +316,61 @@ private fun SimSection(
             selected = selection is SimSelection.Slots && sim.slotIndex in selection.slots,
             onClick = { onSelect(SimSelection.slot(sim.slotIndex)) },
         )
+    }
+}
+
+/**
+ * Extra sender addresses the agent trusts as M-Pesa confirmations, beyond the
+ * official shortcode — e.g. their own registered sender ID (`SKYSCOPE_`) when
+ * it resells a service that texts the same till-confirmation format.
+ *
+ * Empty by default: this only ever *adds* trust, never removes the official
+ * shortcode check, so a fresh install and every install from before this
+ * setting existed behave exactly as before.
+ */
+@Composable
+private fun TrustedSendersSection(
+    senders: Set<String>,
+    input: String,
+    canAdd: Boolean,
+    onInputChange: (String) -> Unit,
+    onAdd: () -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    Text(
+        text = stringResource(R.string.settings_trusted_senders_help),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    senders.forEach { sender ->
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(text = sender, style = MaterialTheme.typography.bodyLarge)
+            TextButton(onClick = { onRemove(sender) }) {
+                Text(stringResource(R.string.settings_trusted_senders_remove))
+            }
+        }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = input,
+            onValueChange = onInputChange,
+            label = { Text(stringResource(R.string.settings_trusted_senders_label)) },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        Button(onClick = onAdd, enabled = canAdd) {
+            Text(stringResource(R.string.settings_trusted_senders_add))
+        }
     }
 }
 

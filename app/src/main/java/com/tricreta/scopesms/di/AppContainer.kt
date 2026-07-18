@@ -210,6 +210,11 @@ class AppContainer(context: Context) {
         // rather than landing in front of the first SMS of a burst.
         settings.simSelection.launchIn(applicationScope)
 
+        // Same reasoning for the trusted-senders whitelist: the receiver's
+        // sender check reads this synchronously too, so it must be warm before
+        // the first SMS of a burst arrives rather than fall back to disk.
+        settings.trustedSenders.launchIn(applicationScope)
+
         applicationScope.launch {
             keepInSync("rules", pricingRuleRepository.observeAll(), ruleCache::publish)
         }

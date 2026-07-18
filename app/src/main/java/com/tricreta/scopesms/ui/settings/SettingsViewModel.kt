@@ -45,6 +45,11 @@ data class SettingsUiState(
     val themePreference: ThemePreference = ThemePreference.DEFAULT,
     val batteryExempt: Boolean = true,
     val gatewayConfigured: Boolean = false,
+    // Extra sender addresses whitelisted to be read as M-Pesa confirmations,
+    // beyond the official shortcode — e.g. the agent's own SKYSCOPE_ number
+    // when it resells a service that texts the same till-confirmation format.
+    val trustedSenders: Set<String> = emptySet(),
+    val trustedSenderInput: String = "",
     val senderId: String = "",
     val apiKeyInput: String = "",
     // The client's default. Most agents send under SKYSCOPE_, so pre-fill it —
@@ -66,6 +71,11 @@ data class SettingsUiState(
         get() = apiKeyInput.isNotBlank() && senderIdInput.isNotBlank()
 
     val canTestSend: Boolean get() = gatewayConfigured && testSend !is TestSendState.Sending
+
+    /** Blank, or already whitelisted (case-insensitively) — nothing to add. */
+    val canAddTrustedSender: Boolean
+        get() = trustedSenderInput.isNotBlank() &&
+            trustedSenders.none { it.equals(trustedSenderInput.trim(), ignoreCase = true) }
 }
 
 /** Drives Settings: SIM choice, gateway credentials, battery, OEM help, version. */
@@ -114,6 +124,11 @@ class SettingsViewModel(
                 _uiState.update { it.copy(themePreference = preference) }
             }
         }
+        viewModelScope.launch {
+            container.settings.trustedSenders.collect { senders ->
+                _uiState.update { it.copy(trustedSenders = senders) }
+            }
+        }
         refresh()
     }
 
@@ -147,6 +162,26 @@ class SettingsViewModel(
 
     fun selectSims(selection: SimSelection) {
         viewModelScope.launch { container.settings.setSimSelection(selection) }
+    }
+
+    fun updateTrustedSenderInput(value: String) {
+        _uiState.update { it.copy(trustedSenderInput = value) }
+    }
+
+    /** Adds the typed sender to the whitelist and clears the input. */
+    fun addTrustedSender() {
+        val state = _uiState.value
+        if (!state.canAddTrustedSender) return
+
+        val updated = state.trustedSenders + state.trustedSenderInput.trim()
+        _uiState.update { it.copy(trustedSenders = updated, trustedSenderInput = "") }
+        viewModelScope.launch { container.settings.setTrustedSenders(updated) }
+    }
+
+    fun removeTrustedSender(sender: String) {
+        val updated = _uiState.value.trustedSenders - sender
+        _uiState.update { it.copy(trustedSenders = updated) }
+        viewModelScope.launch { container.settings.setTrustedSenders(updated) }
     }
 
     fun updateApiKeyInput(value: String) {

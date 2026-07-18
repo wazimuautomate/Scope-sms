@@ -109,12 +109,28 @@ object MpesaParser {
     private val MPESA_SENDER = Regex("""^M-?PESA$""", RegexOption.IGNORE_CASE)
 
     /**
-     * True if [address] is M-Pesa. Kept separate from [parse] so the receiver
-     * can check the sender before spending anything on the body, and so both
-     * rules are testable independently.
+     * True if [address] is M-Pesa, or one of [extraTrustedSenders].
+     *
+     * The whitelist exists for an agent who also runs a side service under
+     * their own registered sender ID (e.g. `SKYSCOPE_`) that re-sends the
+     * same till-confirmation format — a second real source of "money
+     * received" texts, not a spoofing hole, because the agent opts each one
+     * in by hand in Settings (`SettingsRepository.trustedSenders`). Compared
+     * case-insensitively, trimmed, against the *exact* address — no pattern
+     * matching beyond that, unlike the official shortcode's `-?` allowance,
+     * because a registered sender ID doesn't have M-Pesa's carrier-display
+     * quirks.
+     *
+     * Kept separate from [parse] so the receiver can check the sender before
+     * spending anything on the body, and so both rules are testable
+     * independently.
      */
-    fun isMpesaSender(address: String?): Boolean =
-        address != null && MPESA_SENDER.matches(address.trim())
+    fun isMpesaSender(address: String?, extraTrustedSenders: Set<String> = emptySet()): Boolean {
+        if (address == null) return false
+        val trimmed = address.trim()
+        return MPESA_SENDER.matches(trimmed) ||
+            extraTrustedSenders.any { it.trim().equals(trimmed, ignoreCase = true) }
+    }
 
     /**
      * Parses [body]. Never throws — a malformed SMS is a [ParseResult.Rejected],
