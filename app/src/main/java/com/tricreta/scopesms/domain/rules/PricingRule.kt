@@ -15,6 +15,9 @@ import com.tricreta.scopesms.domain.money.KshAmount
  * @param category which kind of bundle this is (data/minutes/sms), so the
  *   unmatched reply can quote one category at a time. Defaults to
  *   [BundleCategory.DEFAULT]; pre-category rows migrate to it.
+ * @param purchaseLimit how often one customer can buy this bundle in a day —
+ *   Safaricom restricts some offers to once per number per day. Defaults to
+ *   [PurchaseLimit.DEFAULT]; pre-existing rows migrate to it.
  */
 data class PricingRule(
     val id: Long,
@@ -22,6 +25,7 @@ data class PricingRule(
     val bundleDescription: String,
     val isActive: Boolean = true,
     val category: BundleCategory = BundleCategory.DEFAULT,
+    val purchaseLimit: PurchaseLimit = PurchaseLimit.DEFAULT,
 )
 
 /**

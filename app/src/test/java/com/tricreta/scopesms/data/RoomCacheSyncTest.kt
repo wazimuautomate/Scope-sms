@@ -6,8 +6,10 @@ import com.tricreta.scopesms.data.AppDatabase
 import com.tricreta.scopesms.data.rules.RoomPricingRuleRepository
 import com.tricreta.scopesms.data.templates.RoomMessageTemplateRepository
 import com.tricreta.scopesms.domain.money.KshAmount
+import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.MatchOutcome
 import com.tricreta.scopesms.domain.rules.PricingRule
+import com.tricreta.scopesms.domain.rules.PurchaseLimit
 import com.tricreta.scopesms.domain.rules.RuleCache
 import com.tricreta.scopesms.domain.rules.RuleSnapshot
 import com.tricreta.scopesms.domain.templates.TemplateCache
@@ -161,6 +163,24 @@ class RoomCacheSyncTest {
         rules.upsert(PricingRule(0, KshAmount(2050), "Oddly priced bundle"))
 
         assertThat(rules.getAll().single().amount).isEqualTo(KshAmount(2050))
+    }
+
+    @Test
+    fun `category and purchase limit survive the round trip`() = runBlocking<Unit> {
+        rules.upsert(
+            PricingRule(
+                0,
+                KshAmount.ofShillings(20),
+                "1GB Daily",
+                category = BundleCategory.DATA,
+                purchaseLimit = PurchaseLimit.ONCE_PER_DAY,
+            ),
+        )
+
+        val stored = rules.getAll().single()
+
+        assertThat(stored.category).isEqualTo(BundleCategory.DATA)
+        assertThat(stored.purchaseLimit).isEqualTo(PurchaseLimit.ONCE_PER_DAY)
     }
 
     @Test

@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 import com.tricreta.scopesms.domain.money.KshAmount
 import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PricingRule
+import com.tricreta.scopesms.domain.rules.PurchaseLimit
 
 /**
  * A pricing rule as stored. The domain model is
@@ -61,6 +62,19 @@ data class PricingRuleEntity(
      * subtleties a `NOT NULL DEFAULT` column would introduce.
      */
     val category: String? = BundleCategory.DEFAULT.name,
+
+    /**
+     * How often one customer can buy this bundle per day, stored by
+     * [PurchaseLimit.name].
+     *
+     * **Nullable on purpose**, exactly like [category]: the v2→v3 migration
+     * adds it with a plain `ALTER TABLE … ADD COLUMN purchaseLimit TEXT` (no
+     * default), so every pre-existing row is NULL and reads back as
+     * [PurchaseLimit.DEFAULT] via [PurchaseLimit.fromName] — the bundles the
+     * client already entered keep behaving exactly as before until they
+     * edit one to say otherwise.
+     */
+    val purchaseLimit: String? = PurchaseLimit.DEFAULT.name,
 ) {
     fun toDomain(): PricingRule = PricingRule(
         id = id,
@@ -68,6 +82,7 @@ data class PricingRuleEntity(
         bundleDescription = bundleDescription,
         isActive = isActive,
         category = BundleCategory.fromName(category),
+        purchaseLimit = PurchaseLimit.fromName(purchaseLimit),
     )
 
     companion object {
@@ -77,6 +92,7 @@ data class PricingRuleEntity(
             bundleDescription = rule.bundleDescription,
             isActive = rule.isActive,
             category = rule.category.name,
+            purchaseLimit = rule.purchaseLimit.name,
         )
     }
 }

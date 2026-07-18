@@ -1,6 +1,7 @@
 package com.tricreta.scopesms.ui.log
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -12,15 +13,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -240,26 +246,41 @@ private fun LogRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    val copiedMessage = stringResource(R.string.log_copied_field)
+    fun copy(text: String) {
+        clipboard.setText(AnnotatedString(text))
+        Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
+    }
+
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    // A failed send is money-adjacent, but a full red card was the client's
+    // complaint ("too harsh") — so failure is now a red border plus red
+    // status text, not a red fill. Selection highlight still wins outright:
+    // a selected row is never also drawn as failed.
+    val showFailedStyle = !selected && record.notifyStatus.isFailure
+
     Card(
         // Long-press any row to start selecting; tap toggles once selection is on.
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        colors = when {
-            selected -> CardDefaults.cardColors(
+        colors = if (selected) {
+            CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             )
-            record.notifyStatus.isFailure -> CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            else -> CardDefaults.cardColors()
+        } else {
+            CardDefaults.cardColors()
         },
+        border = if (showFailedStyle) BorderStroke(1.5.dp, MaterialTheme.colorScheme.error) else null,
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
@@ -267,10 +288,41 @@ private fun LogRow(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                 )
-                Text(
-                    text = record.timestamp.asTime(),
-                    style = MaterialTheme.typography.labelSmall,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = record.timestamp.asTime(),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(28.dp)) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = stringResource(R.string.log_row_menu),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.log_copy_code)) },
+                                onClick = { menuExpanded = false; copy(record.transactionCode) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.log_copy_phone)) },
+                                onClick = { menuExpanded = false; copy(record.senderPhone) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.log_copy_message)) },
+                                // Null for SILENT rows — no body was ever rendered, so
+                                // there is nothing to copy.
+                                enabled = record.replyBody != null,
+                                onClick = {
+                                    menuExpanded = false
+                                    record.replyBody?.let(::copy)
+                                },
+                            )
+                        }
+                    }
+                }
             }
 
             Text(
@@ -281,10 +333,18 @@ private fun LogRow(
             )
             Text(text = record.senderPhone, style = MaterialTheme.typography.bodySmall)
 
-            Text(
-                text = "${record.matchType.label()} · ${record.notifyStatus.label()}",
-                style = MaterialTheme.typography.labelMedium,
-            )
+            Row {
+                Text(
+                    text = "${record.matchType.label()} · ",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Text(
+                    text = record.notifyStatus.label(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (showFailedStyle) MaterialTheme.colorScheme.error else Color.Unspecified,
+                    fontWeight = if (showFailedStyle) FontWeight.Bold else FontWeight.Normal,
+                )
+            }
 
             record.bundleDescription?.let {
                 Text(text = it, style = MaterialTheme.typography.bodySmall)
@@ -297,6 +357,7 @@ private fun LogRow(
                     text = it,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
+                    color = if (showFailedStyle) MaterialTheme.colorScheme.error else Color.Unspecified,
                 )
             }
 

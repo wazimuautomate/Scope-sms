@@ -86,7 +86,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun activityLogDao(): ActivityLogDao
 
     companion object {
-        const val DB_VERSION = 2
+        const val DB_VERSION = 3
 
         private const val DB_NAME = "scope-sms.db"
 
@@ -103,6 +103,23 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE pricing_rules ADD COLUMN category TEXT")
+            }
+        }
+
+        /**
+         * v2 → v3: adds the bundle [com.tricreta.scopesms.domain.rules.PurchaseLimit]
+         * column (once/day vs multiple/day).
+         *
+         * Same shape as [MIGRATION_1_2] and for the same reason: a plain
+         * nullable `ADD COLUMN`, no default. Existing bundle prices are
+         * preserved untouched and left NULL, which the app reads as
+         * [com.tricreta.scopesms.domain.rules.PurchaseLimit.DEFAULT]
+         * (unrestricted) — every bundle the agent already priced keeps
+         * behaving exactly as it did before this column existed.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pricing_rules ADD COLUMN purchaseLimit TEXT")
             }
         }
 
@@ -124,7 +141,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 // No fallbackToDestructiveMigration() — see the class doc.
                 .build()
     }

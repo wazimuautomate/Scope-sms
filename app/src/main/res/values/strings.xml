@@ -81,6 +81,10 @@
     <string name="category_data">Data</string>
     <string name="category_minutes">Minutes</string>
     <string name="category_sms">SMS</string>
+    <string name="rules_purchase_limit_label">How often can it be bought?</string>
+    <string name="rules_purchase_limit_once">Once a day</string>
+    <string name="rules_purchase_limit_multiple">Multiple times a day</string>
+    <string name="rules_purchase_limit_badge">Once a day per customer</string>
     <string name="rules_duplicate_badge">Another bundle has this price</string>
     <string name="rules_duplicate_warning">%1$d price(s) are used by more than one bundle. Only the newest is quoted to customers.</string>
 
@@ -118,6 +122,11 @@
     <string name="log_empty_filtered">Nothing matches those filters.</string>
     <string name="log_amount">Ksh %1$s</string>
     <string name="log_unknown_sender">Name not in the message</string>
+    <string name="log_row_menu">More options</string>
+    <string name="log_copy_code">Copy M-Pesa code</string>
+    <string name="log_copy_phone">Copy phone number</string>
+    <string name="log_copy_message">Copy full message</string>
+    <string name="log_copied_field">Copied to clipboard</string>
 
     <string name="match_matched">Matched a bundle</string>
     <string name="match_unmatched">No bundle at that price</string>

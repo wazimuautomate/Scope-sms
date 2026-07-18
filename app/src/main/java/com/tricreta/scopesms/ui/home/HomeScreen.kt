@@ -1,5 +1,6 @@
 package com.tricreta.scopesms.ui.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -130,17 +131,14 @@ fun HomeScreen(
 /** One compact row in Home's "Latest replies" list. */
 @Composable
 private fun RecentReplyCard(record: ActivityRecord, onClick: () -> Unit) {
+    // Red fill was the client's complaint ("too harsh") — a failed send is now
+    // a red border plus red status text, matching the Activity log's LogRow.
+    val failed = record.notifyStatus.isFailure
+
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        colors = if (record.notifyStatus.isFailure) {
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            )
-        } else {
-            CardDefaults.cardColors()
-        },
+        border = if (failed) BorderStroke(1.5.dp, MaterialTheme.colorScheme.error) else null,
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(
@@ -161,10 +159,15 @@ private fun RecentReplyCard(record: ActivityRecord, onClick: () -> Unit) {
                 text = record.senderName ?: record.senderPhone,
                 style = MaterialTheme.typography.bodyMedium,
             )
+            // Which bundle they bought, e.g. "250MB 24HRS" — alongside price,
+            // name, time and status, per the client's ask.
+            record.bundleDescription?.let {
+                Text(text = it, style = MaterialTheme.typography.bodySmall)
+            }
             Text(
                 text = stringResource(record.notifyStatus.labelRes()),
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
