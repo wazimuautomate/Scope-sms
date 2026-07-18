@@ -58,8 +58,16 @@ jobs:
       - name: Run Android lint
         run: ./gradlew lint --stacktrace
 
+      # continue-on-error on every upload-artifact step below: these are
+      # convenience downloads for a human, not gates. Without it, a transient
+      # artifact-storage failure (e.g. the account's Actions storage quota
+      # being full — happened 2026-07-18, see memory.md) skipped every step
+      # after it, including the debug APK build and the Room schema upload —
+      # neither of which should depend on whether a test report happened to
+      # upload.
       - name: Upload test + lint reports
         if: ${{ !cancelled() }}
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: reports-${{ github.run_number }}
@@ -87,6 +95,7 @@ jobs:
       # generated file back into the repo when the schema changes.
       - name: Upload Room schemas
         if: ${{ !cancelled() }}
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: room-schemas-${{ github.run_number }}
@@ -97,6 +106,7 @@ jobs:
       # Kept for developers to trace an APK back to its commit. Delivered as a
       # .zip needing a GitHub login — deliberately not the agent's download.
       - name: Upload debug APK artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: scope-sms-debug-${{ github.run_number }}-${{ github.sha }}
@@ -153,6 +163,7 @@ jobs:
 
       - name: Upload instrumented test report
         if: ${{ !cancelled() }}
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: instrumented-report-api${{ matrix.api-level }}-${{ github.run_number }}
