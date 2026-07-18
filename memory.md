@@ -8,11 +8,11 @@
 
 ## Phase status
 
-All phases are on `main` as of 2026-07-18 (last merge: PR #12, name
-variables + bundle purchase-limit + UI polish, below). CI green on that PR:
-unit tests + lint + debug APK, and the API 30/36 smoke-test emulator matrix,
-all passing (counts not re-read from reports this session — see PR #12's
-checks for the exact numbers).
+All phases are on `main` as of 2026-07-18 (last merge: PR #14, trusted-senders
+whitelist, below). PR #12 (name variables + bundle purchase-limit + UI polish)
+was fully CI-green. **PR #14 was merged with the artifact-upload steps
+red** — see "🔴 CI artifact storage quota" below for why that was still the
+right call.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -33,6 +33,95 @@ checks for the exact numbers).
 **What "🟡" means here: the code is written and tested as far as this workflow
 can test it. Every remaining item needs a physical phone or an answer from the
 client.** Nothing is 🟡 because it was left half-finished.
+
+---
+
+## Trusted M-Pesa senders whitelist (2026-07-18)
+
+Branch `feature/trusted-sms-senders` → PR #14, squash-merged to `main`
+(`638405d`). Not yet released as its own version — merged to main but no
+tag cut this session; next release should bump versionCode/versionName to
+include it.
+
+### The feature
+The client runs a second service under his own registered sender ID
+(`SKYSCOPE_`) that texts the **same till-confirmation format** M-Pesa uses.
+Before this, `MpesaParser.isMpesaSender()` accepted only the official
+`^M-?PESA$` shortcode (a deliberate security control — see the 2026-07-16
+gotcha entry), so those messages were silently dropped as untrusted.
+
+Deliberately **not** hardcoded to `SKYSCOPE_` in source, even though that's
+the one sender the client asked for by name — that string is coincidentally
+also `ui/settings/DEFAULT_SENDER_ID`, the app's *outbound* gateway sender-ID
+prefill, but the two are unrelated settings (one is "who we send AS", this
+one is "which inbound addresses we also trust as M-Pesa"). Baking in an
+always-trusted address would silently change ingestion behavior for every
+install the moment this ships, with no agent action and no way to see it was
+on. Instead: a new **Settings → "Trusted M-Pesa senders"** section, empty by
+default, where the agent adds/removes sender IDs themselves. Empty means
+"official shortcode only" — identical to every install before this feature
+existed.
+
+### Shape of the change
+- `SettingsRepository.trustedSenders: Flow<Set<String>>` — a native
+  `stringSetPreferencesKey`, not a custom encode/decode like
+  `SimSelection.encode/decode`; a flat set of strings needs no codec.
+  `currentTrustedSenders()` is **not** `suspend` — mirrors
+  `cachedSimSelection`'s pattern (a `@Volatile` cache warmed by
+  `AppContainer.start()` via `settings.trustedSenders.launchIn(...)`) because
+  `SmsReceiver` calls it synchronously, before `goAsync()`, same constraint-5
+  requirement as the SIM filter.
+- `MpesaParser.isMpesaSender(address, extraTrustedSenders = emptySet())` —
+  the default keeps every existing caller (and all existing tests)
+  unchanged. Match is case-insensitive and trimmed against the *exact*
+  address, no `-?`-style pattern flexibility — a registered sender ID
+  doesn't have M-Pesa's carrier-display quirks, so exact match is the
+  correct level of tolerance, not a gap.
+- `SmsReceiver.onReceive` now fetches `AppContainer.from(context)` **before**
+  the sender check rather than after — the only reordering. `AppContainer` is
+  a warmed process-singleton lookup, not I/O, so this doesn't reintroduce
+  anything constraint 5 forbids; it's simply needed one statement earlier so
+  the whitelist can be consulted before the accept/reject decision.
+
+### 🔴 CI artifact storage quota — hit mid-session, fixed by deleting old artifacts
+PR #14's CI runs failed, but **every substantive step passed** (unit tests,
+lint, both API 30/36 instrumented test suites) — only the `Upload *`
+artifact steps failed, with `Failed to CreateArtifact: Artifact storage
+quota has been hit`. `gh api .../actions/artifacts` showed **239 artifacts,
+~709MB** — three days of debug APKs (~14MB each), Room schemas, and test
+reports, all still inside the workflows' 14-day `retention-days` (too young
+to have organically expired). Deleted the 229 oldest via the API
+(`DELETE /repos/.../actions/artifacts/{id}`), keeping the newest 10 (~14MB
+total) — none of these are load-bearing; the release process pulls the APK
+from a GitHub **Release** asset, a completely separate storage bucket from
+Actions artifacts.
+
+**The quota check did not clear after deletion.** A rerun still failed
+identically. GitHub's own error text says *"Usage is recalculated every
+6-12 hours"* — the upload-gate reads a periodic usage snapshot, not a live
+count, so deleting artifacts doesn't unblock uploads until that next
+recalculation. Confirmed this isn't fixable faster from here (no `user`
+scope on this token to check account-level billing directly, and it
+wouldn't change the recalculation cadence anyway).
+
+**Client decision: merge anyway.** Given the actual tests/lint/instrumented
+suites all passed and the only red steps were artifact uploads for a known,
+external, time-boxed reason, merged PR #14 with those steps still failing.
+**If this recurs:** don't re-delete blindly — check `gh pr checks <n>` for
+which *specific* steps failed first. If it's `Run unit tests` / `Run
+Android lint` / `Run instrumented tests` themselves, that's a real
+regression; if it's only the `Upload ...` steps, it's this same quota issue
+and the fix is the same (delete old artifacts, expect a multi-hour lag
+before uploads work again, and treat the substantive step results — not the
+overall run conclusion — as the pass/fail signal in the meantime).
+
+**Retention is 14 days** (`build.yml`, `release.yml`) and this repo is only
+days old, so nothing will organically expire for a while yet. Worth
+revisiting if this recurs: either shorten `retention-days` (fewer artifacts
+alive at once) or stop uploading the debug APK artifact on every single push
+(it's rebuilt on every run and only useful for the one that produced it).
+Neither was changed this session — scope was fixing the immediate block, not
+redesigning the workflow.
 
 ---
 

@@ -4,6 +4,37 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-18 — Trusted M-Pesa senders whitelist + a CI storage-quota fire
+
+Branch `feature/trusted-sms-senders` → PR #14, squash-merged to `main`. Not
+tagged as its own release this session — merged, but the version bump/tag
+was left for next time (or on request).
+
+The client runs a second service under his own registered sender ID
+(`SKYSCOPE_`) that texts the same till-confirmation format M-Pesa uses;
+those were being silently dropped since the app only trusted the official
+`MPESA`/`M-PESA` shortcode. Fixed with a new **Settings → "Trusted M-Pesa
+senders"** section (empty by default — every existing install keeps
+today's behavior until the agent explicitly adds a sender there) and an
+`extraTrustedSenders` parameter on `MpesaParser.isMpesaSender`. Full
+rationale, including why `SKYSCOPE_` isn't hardcoded, is in `memory.md`.
+
+### 🔴 Mid-session: PR #14's CI went red on a GitHub Actions storage quota
+Not a code problem — every real step (unit tests, lint, both emulator
+smoke tests) passed; only the artifact-upload steps failed with `Artifact
+storage quota has been hit`. The repo had accumulated 239 CI artifacts
+(~709MB, mostly 14MB debug APKs) in three days, all still within the
+14-day retention window. Deleted the 229 oldest (kept the newest 10),
+freeing ~696MB — but GitHub's quota check runs on a periodic recalculation
+("every 6-12 hours" per their own error), not a live count, so a rerun
+still failed the same way immediately after cleanup. With the client's
+explicit go-ahead, merged PR #14 on the strength of the actual passing
+test/lint/instrumented-test steps rather than waiting out the recalculation
+window. See `memory.md` for the full incident note and what to check first
+if this recurs.
+
+---
+
 ## 2026-07-18 — Name variables, bundle purchase-limit, softer failure styling, log copy menu
 
 Branch `feature/name-vars-purchase-limit-ui-polish` → PR #12, squash-merged
