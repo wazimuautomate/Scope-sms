@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.tricreta.scopesms.domain.notifications.NotificationToggles
 import com.tricreta.scopesms.domain.settings.ThemePreference
@@ -116,6 +117,43 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[KEY_SIM_SELECTION] = SimSelection.encode(selection) }
     }
 
+    /**
+     * Extra sender addresses/IDs the agent has whitelisted as trustworthy
+     * M-Pesa confirmations, beyond the official `MPESA`/`M-PESA` shortcode —
+     * e.g. an agent's own registered sender ID (`SKYSCOPE_`) when it re-sends
+     * the same till-confirmation format for a side service. Empty by default:
+     * a fresh install (and every install before this setting existed) trusts
+     * only the official shortcode, exactly as before.
+     *
+     * Emits the current value immediately, then on every change.
+     */
+    @Volatile
+    private var cachedTrustedSenders: Set<String> = emptySet()
+
+    val trustedSenders: Flow<Set<String>> = dataStore.data
+        .safe()
+        .map { it[KEY_TRUSTED_SENDERS].orEmpty() }
+        .onEach { cachedTrustedSenders = it }
+
+    /**
+     * The whitelist, for the SMS receiver's sender check.
+     *
+     * Not `suspend`: [com.tricreta.scopesms.telephony.SmsReceiver] calls this
+     * synchronously, before `goAsync()`, exactly like the sender regex it's
+     * combined with (CLAUDE.md constraint 5 — no I/O, no suspension on that
+     * path). Returns empty until [trustedSenders] has been collected at least
+     * once — safe, because empty is this setting's own default and reproduces
+     * pre-this-feature behaviour (official shortcode only) rather than
+     * trusting nothing or blocking.
+     */
+    fun currentTrustedSenders(): Set<String> = cachedTrustedSenders
+
+    suspend fun setTrustedSenders(senders: Set<String>) {
+        val normalized = senders.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        cachedTrustedSenders = normalized
+        dataStore.edit { it[KEY_TRUSTED_SENDERS] = normalized }
+    }
+
     suspend fun setOnboardingComplete(complete: Boolean) {
         dataStore.edit { it[KEY_ONBOARDING_COMPLETE] = complete }
     }
@@ -171,6 +209,10 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
 
         private val KEY_SIM_SELECTION = stringPreferencesKey("sim_selection")
         private val KEY_ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+
+        // Absent means "none whitelisted yet" and decodes to an empty set, which
+        // is this setting's own safe default — see currentTrustedSenders().
+        private val KEY_TRUSTED_SENDERS = stringSetPreferencesKey("trusted_senders")
 
         // Absent means "never chosen" and decodes to ThemePreference.DEFAULT
         // (SYSTEM) — a missing key must read as "follow the phone", not as a

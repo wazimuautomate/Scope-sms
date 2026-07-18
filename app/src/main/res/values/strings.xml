@@ -143,6 +143,12 @@
     <string name="settings_sim_all">Both SIMs</string>
     <string name="settings_sim_none">No SIM cards detected.</string>
 
+    <string name="settings_trusted_senders">Trusted M-Pesa senders</string>
+    <string name="settings_trusted_senders_help">Scope SMS always reads the official M-Pesa shortcode. If you also receive till confirmations from another registered sender ID — for example your own SKYSCOPE_ number — add it here so those are read too.</string>
+    <string name="settings_trusted_senders_label">Sender ID</string>
+    <string name="settings_trusted_senders_add">Add</string>
+    <string name="settings_trusted_senders_remove">Remove</string>
+
     <string name="settings_gateway">SMS gateway</string>
     <string name="settings_gateway_help">Replies are sent through your SCOPE SMS account, not from this phone\'s SIM. Your API key is stored encrypted on this device only.</string>
     <string name="settings_gateway_saved">Saved: key %1$s · sender ID %2$s</string>

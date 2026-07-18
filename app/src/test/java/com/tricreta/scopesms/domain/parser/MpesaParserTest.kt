@@ -311,6 +311,32 @@ class MpesaParserTest {
         assertTrue(!MpesaParser.isMpesaSender(""))
     }
 
+    // --- Agent-whitelisted senders (e.g. a reseller's own SKYSCOPE_ number) --
+
+    @Test
+    fun `accepts a whitelisted sender in addition to the official shortcode`() {
+        assertTrue(MpesaParser.isMpesaSender("SKYSCOPE_", setOf("SKYSCOPE_")))
+        // The official shortcode still works when a whitelist is configured.
+        assertTrue(MpesaParser.isMpesaSender("MPESA", setOf("SKYSCOPE_")))
+    }
+
+    @Test
+    fun `whitelist match is case-insensitive and trims both sides`() {
+        assertTrue(MpesaParser.isMpesaSender("skyscope_", setOf("SKYSCOPE_")))
+        assertTrue(MpesaParser.isMpesaSender(" SKYSCOPE_ ", setOf(" skyscope_ ")))
+    }
+
+    @Test
+    fun `an empty whitelist changes nothing — default behaviour is preserved`() {
+        assertTrue(!MpesaParser.isMpesaSender("SKYSCOPE_"))
+        assertTrue(!MpesaParser.isMpesaSender("SKYSCOPE_", emptySet()))
+    }
+
+    @Test
+    fun `a sender not on the whitelist and not the official shortcode is still rejected`() {
+        assertTrue(!MpesaParser.isMpesaSender("SOMEONE_ELSE", setOf("SKYSCOPE_")))
+    }
+
     // --- Never throws --------------------------------------------------------
 
     @Test

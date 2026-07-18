@@ -24,7 +24,9 @@ import kotlinx.coroutines.launch
  *
  * Order is deliberate, cheapest and most-privacy-preserving first:
  * 1. Wrong action → return. Free.
- * 2. Not from M-Pesa → return. Free, and rejects spoofed payment texts.
+ * 2. Not from M-Pesa **and** not from an agent-whitelisted sender → return.
+ *    Rejects spoofed payment texts; the whitelist check is a cached settings
+ *    read, not I/O (see `SettingsRepository.currentTrustedSenders`).
  * 3. Not from a watched SIM → return. **Before parsing** — BUILD-PLAN Phase 2
  *    says "drop immediately", and it means we never even read the body of the
  *    agent's personal messages.
@@ -48,15 +50,21 @@ class SmsReceiver : BroadcastReceiver() {
         try {
             val sms = readIntent(intent) ?: return
 
-            if (!MpesaParser.isMpesaSender(sms.sender)) {
+            // Fetched before the sender check (rather than after, as before this
+            // whitelist existed) so the check can consult the agent's trusted-
+            // senders list — AppContainer.from is a cheap lookup of an
+            // already-warmed singleton, not I/O, so this doesn't cost the
+            // "cheapest first" ordering below anything real.
+            val container = AppContainer.from(context)
+
+            if (!MpesaParser.isMpesaSender(sms.sender, container.settings.currentTrustedSenders())) {
                 // Not logging the body: it isn't ours to read, and it's someone's
                 // private SMS. The address alone is what we'd need to diagnose a
                 // wrong sender rule.
-                Log.d(TAG, "Ignoring SMS from non-M-Pesa sender '${sms.sender}'.")
+                Log.d(TAG, "Ignoring SMS from untrusted sender '${sms.sender}'.")
                 return
             }
 
-            val container = AppContainer.from(context)
             val pendingResult = goAsync()
 
             container.applicationScope.launch {
