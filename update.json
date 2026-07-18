@@ -1,9 +1,9 @@
 {
-  "versionCode": 6,
-  "versionName": "1.1.1",
-  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/479682419",
-  "sha256": "0f28041d7953dce4b65aa10b511c3b4fd057e1e1eb73ebe01e62860b58b7a02b",
-  "releaseNotes": "release: 1.1.1 (versionCode 6) (#11)",
+  "versionCode": 7,
+  "versionName": "1.2.0",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/481384041",
+  "sha256": "184d27e9f4488d3484c472df374d09d87e27675f8ed4725698a70e9ae8e9a7a9",
+  "releaseNotes": "v1.2.0 (versionCode 7): name variables, bundle purchase-limit, softer failure styling, activity log copy menu",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
