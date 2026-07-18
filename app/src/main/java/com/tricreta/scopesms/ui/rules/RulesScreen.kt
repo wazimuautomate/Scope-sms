@@ -55,12 +55,19 @@ import kotlinx.coroutines.withContext
 import com.tricreta.scopesms.R
 import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PricingRule
+import com.tricreta.scopesms.domain.rules.PurchaseLimit
 
 /** The display label for a bundle category. */
 private fun categoryLabelRes(category: BundleCategory): Int = when (category) {
     BundleCategory.DATA -> R.string.category_data
     BundleCategory.MINUTES -> R.string.category_minutes
     BundleCategory.SMS -> R.string.category_sms
+}
+
+/** The display label for a purchase limit. */
+private fun purchaseLimitLabelRes(limit: PurchaseLimit): Int = when (limit) {
+    PurchaseLimit.ONCE_PER_DAY -> R.string.rules_purchase_limit_once
+    PurchaseLimit.MULTIPLE_PER_DAY -> R.string.rules_purchase_limit_multiple
 }
 
 /**
@@ -217,6 +224,7 @@ fun RulesScreen(
             onAmountChange = { viewModel.updateDraft(amountText = it) },
             onDescriptionChange = { viewModel.updateDraft(description = it) },
             onCategoryChange = { viewModel.updateDraft(category = it) },
+            onPurchaseLimitChange = { viewModel.updateDraft(purchaseLimit = it) },
             onSave = viewModel::save,
             onDismiss = viewModel::cancelEditing,
         )
@@ -283,6 +291,16 @@ private fun RuleCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
+                // Only called out when it restricts the customer — the common
+                // case (buyable any number of times) needs no badge, the same
+                // way `rules_paused` only appears when a rule is paused.
+                if (rule.purchaseLimit == PurchaseLimit.ONCE_PER_DAY) {
+                    Text(
+                        text = stringResource(R.string.rules_purchase_limit_badge),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
                 if (isDuplicate) {
                     Text(
                         text = stringResource(R.string.rules_duplicate_badge),
@@ -316,6 +334,7 @@ private fun RuleEditorDialog(
     onAmountChange: (String) -> Unit,
     onDescriptionChange: (String) -> Unit,
     onCategoryChange: (BundleCategory) -> Unit,
+    onPurchaseLimitChange: (PurchaseLimit) -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -378,6 +397,29 @@ private fun RuleEditorDialog(
                             ),
                         ) {
                             Text(stringResource(categoryLabelRes(category)))
+                        }
+                    }
+                }
+
+                // How often one customer can buy this bundle in a day —
+                // Safaricom caps some offers to once/day per number, others
+                // are unrestricted. Surfaced so `{purchase_limit}` has
+                // something real to say in the purchase confirmation.
+                Text(
+                    text = stringResource(R.string.rules_purchase_limit_label),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    PurchaseLimit.entries.forEachIndexed { index, limit ->
+                        SegmentedButton(
+                            selected = draft.purchaseLimit == limit,
+                            onClick = { onPurchaseLimitChange(limit) },
+                            shape = SegmentedButtonDefaults.itemShape(
+                                index = index,
+                                count = PurchaseLimit.entries.size,
+                            ),
+                        ) {
+                            Text(stringResource(purchaseLimitLabelRes(limit)))
                         }
                     }
                 }

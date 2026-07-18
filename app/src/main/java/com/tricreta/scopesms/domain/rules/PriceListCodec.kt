@@ -44,11 +44,13 @@ object PriceListCodec {
     private const val BUNDLE_KEY = "bundle"
     private const val ACTIVE_KEY = "active"
     private const val CATEGORY_KEY = "category"
+    private const val PURCHASE_LIMIT_KEY = "purchase_limit"
 
-    // Stays 1 even though `category` was added: it is an *optional* field. An
-    // older app ignores it and still imports the prices; this app defaults a file
-    // without it to BundleCategory.DEFAULT. Bumping the version would make the old
-    // app reject the file outright — the worse outcome for the agent's data.
+    // Stays 1 even though `category` (and later `purchase_limit`) were added:
+    // both are *optional* fields. An older app ignores them and still imports
+    // the prices; this app defaults a file without them to BundleCategory.DEFAULT
+    // / PurchaseLimit.DEFAULT. Bumping the version would make the old app reject
+    // the file outright — the worse outcome for the agent's data.
     private const val CURRENT_VERSION = 1
 
     /**
@@ -70,7 +72,8 @@ object PriceListCodec {
                     .put(AMOUNT_KEY, rule.amount.shillings)
                     .put(BUNDLE_KEY, rule.bundleDescription)
                     .put(ACTIVE_KEY, rule.isActive)
-                    .put(CATEGORY_KEY, rule.category.name),
+                    .put(CATEGORY_KEY, rule.category.name)
+                    .put(PURCHASE_LIMIT_KEY, rule.purchaseLimit.name),
             )
         }
 
@@ -108,6 +111,7 @@ object PriceListCodec {
         val bundleDescription: String,
         val isActive: Boolean,
         val category: BundleCategory,
+        val purchaseLimit: PurchaseLimit,
     )
 
     /**
@@ -152,6 +156,9 @@ object PriceListCodec {
                         // Absent/unknown → DEFAULT (older files, hand edits).
                         category = BundleCategory.fromName(
                             row.optString(CATEGORY_KEY).ifBlank { null },
+                        ),
+                        purchaseLimit = PurchaseLimit.fromName(
+                            row.optString(PURCHASE_LIMIT_KEY).ifBlank { null },
                         ),
                     ),
                 )

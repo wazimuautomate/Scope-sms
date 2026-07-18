@@ -11,6 +11,7 @@ import com.tricreta.scopesms.domain.money.KshAmount
 import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PriceListCodec
 import com.tricreta.scopesms.domain.rules.PricingRule
+import com.tricreta.scopesms.domain.rules.PurchaseLimit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -67,6 +68,7 @@ data class RuleDraft(
     val description: String = "",
     val isActive: Boolean = true,
     val category: BundleCategory = BundleCategory.DEFAULT,
+    val purchaseLimit: PurchaseLimit = PurchaseLimit.DEFAULT,
     val error: RuleInputError? = null,
 ) {
     val isNew: Boolean get() = id == 0L
@@ -106,6 +108,7 @@ class RulesViewModel(
             description = rule.bundleDescription,
             isActive = rule.isActive,
             category = rule.category,
+            purchaseLimit = rule.purchaseLimit,
         )
     }
 
@@ -117,12 +120,14 @@ class RulesViewModel(
         amountText: String? = null,
         description: String? = null,
         category: BundleCategory? = null,
+        purchaseLimit: PurchaseLimit? = null,
     ) {
         editing.update { draft ->
             draft?.copy(
                 amountText = amountText ?: draft.amountText,
                 description = description ?: draft.description,
                 category = category ?: draft.category,
+                purchaseLimit = purchaseLimit ?: draft.purchaseLimit,
                 // Clear as they type: an error that outlives the thing it was
                 // complaining about is just noise.
                 error = null,
@@ -164,6 +169,7 @@ class RulesViewModel(
                     bundleDescription = draft.description.trim(),
                     isActive = draft.isActive,
                     category = draft.category,
+                    purchaseLimit = draft.purchaseLimit,
                 ),
             )
             editing.value = null
@@ -233,6 +239,7 @@ class RulesViewModel(
                             bundleDescription = row.bundleDescription,
                             isActive = row.isActive,
                             category = row.category,
+                            purchaseLimit = row.purchaseLimit,
                         ),
                     )
                     added++

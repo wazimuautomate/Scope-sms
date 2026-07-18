@@ -3,6 +3,7 @@ package com.tricreta.scopesms.domain.templates
 import com.tricreta.scopesms.domain.money.KshAmount
 import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PricingRule
+import com.tricreta.scopesms.domain.rules.PurchaseLimit
 
 /** What's wrong with a template body, for the editor to show before saving. */
 data class TemplateValidation(
@@ -101,6 +102,8 @@ object TemplateEngine {
         activeRules: List<PricingRule>,
     ): Map<TemplateVariable, String?> = mapOf(
         TemplateVariable.NAME to name,
+        TemplateVariable.FIRST_NAME to firstNameOf(name),
+        TemplateVariable.LAST_NAME to lastNameOf(name),
         TemplateVariable.AMOUNT to amount.format(),
         TemplateVariable.PHONE to phone,
         TemplateVariable.BUNDLE_LIST to BundleListRenderer.render(activeRules),
@@ -117,10 +120,35 @@ object TemplateEngine {
         matchedRule: PricingRule,
     ): Map<TemplateVariable, String?> = mapOf(
         TemplateVariable.NAME to name,
+        TemplateVariable.FIRST_NAME to firstNameOf(name),
+        TemplateVariable.LAST_NAME to lastNameOf(name),
         TemplateVariable.AMOUNT to amount.format(),
         TemplateVariable.PHONE to phone,
         TemplateVariable.PACKAGE to matchedRule.bundleDescription,
+        TemplateVariable.PURCHASE_LIMIT to matchedRule.purchaseLimit.describe(),
     )
+
+    /**
+     * The first word of [name], e.g. `"Skycope"` from `"Skycope Bonke"`.
+     *
+     * Null (not blank) for anything that isn't real text, so it degrades
+     * exactly like a missing [TemplateVariable.NAME] — a gap, never a token.
+     */
+    private fun firstNameOf(name: String?): String? =
+        name?.trim()?.substringBefore(' ')?.ifEmpty { null }
+
+    /**
+     * Everything in [name] after the first word, e.g. `"Bonke"` from
+     * `"Skycope Bonke"`.
+     *
+     * A single-word name — common on till confirmations — has no "last
+     * name" to give, so this is null rather than repeating the first word.
+     */
+    private fun lastNameOf(name: String?): String? {
+        val trimmed = name?.trim().orEmpty()
+        val spaceIndex = trimmed.indexOf(' ')
+        return if (spaceIndex == -1) null else trimmed.substring(spaceIndex + 1).trim().ifEmpty { null }
+    }
 
     /**
      * Closes the holes an empty substitution leaves: doubled spaces, a space
@@ -150,6 +178,17 @@ object TemplateEngine {
     private val HORIZONTAL_RUN = Regex("""[ \t]{2,}""")
     private val SPACE_BEFORE_PUNCTUATION = Regex(""" +([,.!?;:])""")
     private val BLANK_LINE_RUN = Regex("""\n{3,}""")
+}
+
+/**
+ * The `{purchase_limit}` phrase for this limit — always non-blank, unlike
+ * most template values, so the agent can build a sentence around it
+ * (`"You can buy {package} {purchase_limit}."`) the same way they would
+ * around `{package}`.
+ */
+private fun PurchaseLimit.describe(): String = when (this) {
+    PurchaseLimit.ONCE_PER_DAY -> "once a day"
+    PurchaseLimit.MULTIPLE_PER_DAY -> "as many times as you like"
 }
 
 /**

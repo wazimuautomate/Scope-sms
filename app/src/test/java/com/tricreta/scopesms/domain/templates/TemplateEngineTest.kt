@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import com.tricreta.scopesms.domain.money.KshAmount
 import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PricingRule
+import com.tricreta.scopesms.domain.rules.PurchaseLimit
 import org.junit.Test
 
 /**
@@ -123,6 +124,108 @@ class TemplateEngineTest {
         )
         assertThat(TemplateVariable.allowedFor(TemplateType.UNMATCHED)).containsAtLeastElementsIn(perCategory)
         assertThat(TemplateVariable.allowedFor(TemplateType.MATCHED)).containsNoneIn(perCategory)
+    }
+
+    // --- Name splitting (long M-Pesa names push templates into extra segments) -
+
+    @Test
+    fun `first_name and last_name split a two-word name`() {
+        val values = TemplateEngine.unmatchedValues(
+            name = "Skycope Bonke",
+            amount = KshAmount.ofShillings(35),
+            phone = "254700000000",
+            activeRules = priceList,
+        )
+
+        assertThat(TemplateEngine.render("{first_name}", values)).isEqualTo("Skycope")
+        assertThat(TemplateEngine.render("{last_name}", values)).isEqualTo("Bonke")
+    }
+
+    @Test
+    fun `first_name and last_name split the first word from everything after it`() {
+        // A middle name or long name stays together as the "last name" rather
+        // than being dropped — the point is a shorter greeting, not a lossy one.
+        val values = TemplateEngine.matchedValues(
+            name = "John Michael Doe",
+            amount = KshAmount.ofShillings(50),
+            phone = "254700000000",
+            matchedRule = rule(2, 50, "2GB Weekly"),
+        )
+
+        assertThat(TemplateEngine.render("{first_name}", values)).isEqualTo("John")
+        assertThat(TemplateEngine.render("{last_name}", values)).isEqualTo("Michael Doe")
+    }
+
+    @Test
+    fun `a single-word name leaves last_name as a clean gap, not a raw token`() {
+        val rendered = TemplateEngine.render(
+            "Hi {first_name} {last_name}, thanks.",
+            TemplateEngine.matchedValues(
+                name = "Skycope",
+                amount = KshAmount.ofShillings(50),
+                phone = "254700000000",
+                matchedRule = rule(2, 50, "2GB Weekly"),
+            ),
+        )
+
+        assertThat(rendered).doesNotContain("{last_name}")
+        assertThat(rendered).isEqualTo("Hi Skycope, thanks.")
+    }
+
+    @Test
+    fun `a null name leaves both first_name and last_name as gaps`() {
+        val rendered = TemplateEngine.render(
+            "Hi {first_name} {last_name}, thanks.",
+            TemplateEngine.matchedValues(
+                name = null,
+                amount = KshAmount.ofShillings(50),
+                phone = "254700000000",
+                matchedRule = rule(2, 50, "2GB Weekly"),
+            ),
+        )
+
+        assertThat(rendered).isEqualTo("Hi, thanks.")
+    }
+
+    @Test
+    fun `name variables are allowed in both flows`() {
+        val names = setOf(TemplateVariable.NAME, TemplateVariable.FIRST_NAME, TemplateVariable.LAST_NAME)
+        assertThat(TemplateVariable.allowedFor(TemplateType.UNMATCHED)).containsAtLeastElementsIn(names)
+        assertThat(TemplateVariable.allowedFor(TemplateType.MATCHED)).containsAtLeastElementsIn(names)
+    }
+
+    // --- Purchase limit (once/day vs multiple/day) --------------------------
+
+    @Test
+    fun `purchase_limit describes an once-a-day bundle`() {
+        val values = TemplateEngine.matchedValues(
+            name = "A",
+            amount = KshAmount.ofShillings(50),
+            phone = "0700",
+            matchedRule = rule(2, 50, "2GB Weekly").copy(purchaseLimit = PurchaseLimit.ONCE_PER_DAY),
+        )
+
+        assertThat(TemplateEngine.render("{purchase_limit}", values)).isEqualTo("once a day")
+    }
+
+    @Test
+    fun `purchase_limit describes an unrestricted bundle`() {
+        val values = TemplateEngine.matchedValues(
+            name = "A",
+            amount = KshAmount.ofShillings(50),
+            phone = "0700",
+            matchedRule = rule(2, 50, "2GB Weekly").copy(purchaseLimit = PurchaseLimit.MULTIPLE_PER_DAY),
+        )
+
+        assertThat(TemplateEngine.render("{purchase_limit}", values)).isEqualTo("as many times as you like")
+    }
+
+    @Test
+    fun `purchase_limit is allowed in the matched flow only`() {
+        assertThat(TemplateVariable.allowedFor(TemplateType.MATCHED))
+            .contains(TemplateVariable.PURCHASE_LIMIT)
+        assertThat(TemplateVariable.allowedFor(TemplateType.UNMATCHED))
+            .doesNotContain(TemplateVariable.PURCHASE_LIMIT)
     }
 
     // --- Matched flow -------------------------------------------------------

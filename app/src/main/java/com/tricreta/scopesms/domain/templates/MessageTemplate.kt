@@ -33,6 +33,21 @@ enum class TemplateVariable(val token: String) {
     /** Customer's name as M-Pesa reported it. May be absent — see [TemplateEngine]. */
     NAME("{name}"),
 
+    /**
+     * Just the first word of [NAME].
+     *
+     * Added so long M-Pesa names (some run 50 characters) don't push a
+     * template into an extra billed SMS segment — the agent can use this
+     * instead of the full name. Same missing-value handling as [NAME].
+     */
+    FIRST_NAME("{first_name}"),
+
+    /**
+     * Everything in [NAME] after the first word. Null (renders as a gap,
+     * same as a missing [NAME]) when the name is a single word.
+     */
+    LAST_NAME("{last_name}"),
+
     /** What the customer actually paid, e.g. `20` or `20.50`. */
     AMOUNT("{amount}"),
 
@@ -54,6 +69,15 @@ enum class TemplateVariable(val token: String) {
     /** Description of the bundle the payment matched. Matched flow only. */
     PACKAGE("{package}"),
 
+    /**
+     * How often the matched bundle can be bought: "once a day" or "as many
+     * times as you like". Matched flow only — parallels [PACKAGE], since it
+     * only means something for the bundle actually bought. Safaricom caps
+     * some offers to one purchase per number per day; this lets the agent
+     * mention that in the confirmation when it applies.
+     */
+    PURCHASE_LIMIT("{purchase_limit}"),
+
     ;
 
     companion object {
@@ -71,8 +95,12 @@ enum class TemplateVariable(val token: String) {
          */
         fun allowedFor(type: TemplateType): Set<TemplateVariable> = when (type) {
             TemplateType.UNMATCHED ->
-                setOf(NAME, AMOUNT, PHONE, BUNDLE_LIST, DATA_OFFERS, MINUTES_OFFERS, SMS_OFFERS)
-            TemplateType.MATCHED -> setOf(NAME, AMOUNT, PHONE, PACKAGE)
+                setOf(
+                    NAME, FIRST_NAME, LAST_NAME, AMOUNT, PHONE,
+                    BUNDLE_LIST, DATA_OFFERS, MINUTES_OFFERS, SMS_OFFERS,
+                )
+            TemplateType.MATCHED ->
+                setOf(NAME, FIRST_NAME, LAST_NAME, AMOUNT, PHONE, PACKAGE, PURCHASE_LIMIT)
         }
 
         /** Every `{token}`-shaped run in [body], recognised or not. */

@@ -119,4 +119,35 @@ class PriceListCodecTest {
         val loaded = (PriceListCodec.import(json) as PriceListCodec.ImportResult.Loaded).rules
         assertThat(loaded[0].category).isEqualTo(BundleCategory.DEFAULT)
     }
+
+    @Test
+    fun `purchase_limit round-trips through export and import`() {
+        val withLimits = listOf(
+            PricingRule(1, KshAmount.ofShillings(20), "1GB Daily", purchaseLimit = PurchaseLimit.ONCE_PER_DAY),
+            PricingRule(2, KshAmount.ofShillings(50), "2GB Weekly", purchaseLimit = PurchaseLimit.MULTIPLE_PER_DAY),
+        )
+        val loaded = (
+            PriceListCodec.import(PriceListCodec.export(withLimits, now = 0))
+                as PriceListCodec.ImportResult.Loaded
+            ).rules
+
+        assertThat(loaded.map { it.purchaseLimit })
+            .containsExactly(PurchaseLimit.ONCE_PER_DAY, PurchaseLimit.MULTIPLE_PER_DAY)
+            .inOrder()
+    }
+
+    @Test
+    fun `a missing or unknown purchase_limit degrades to the default rather than throwing`() {
+        val json = """
+            {
+              "scope_sms_prices": 1,
+              "prices": [
+                { "amount": 20, "bundle": "1GB" },
+                { "amount": 30, "bundle": "50 mins", "purchase_limit": "TWICE_A_WEEK" }
+              ]
+            }
+        """.trimIndent()
+        val loaded = (PriceListCodec.import(json) as PriceListCodec.ImportResult.Loaded).rules
+        assertThat(loaded.all { it.purchaseLimit == PurchaseLimit.DEFAULT }).isTrue()
+    }
 }
