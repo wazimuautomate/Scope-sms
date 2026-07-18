@@ -8,9 +8,11 @@
 
 ## Phase status
 
-All phases are on `main` as of 2026-07-16. CI green: **276 unit tests + 6
-instrumented tests on API 30 and API 36, 0 failures, 0 skipped** (counts read out
-of the downloaded CI reports, not off the green tick).
+All phases are on `main` as of 2026-07-18 (last merge: PR #12, name
+variables + bundle purchase-limit + UI polish, below). CI green on that PR:
+unit tests + lint + debug APK, and the API 30/36 smoke-test emulator matrix,
+all passing (counts not re-read from reports this session — see PR #12's
+checks for the exact numbers).
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -31,6 +33,86 @@ of the downloaded CI reports, not off the green tick).
 **What "🟡" means here: the code is written and tested as far as this workflow
 can test it. Every remaining item needs a physical phone or an answer from the
 client.** Nothing is 🟡 because it was left half-finished.
+
+---
+
+## Name variables, bundle purchase-limit, softer failure styling, log copy menu (2026-07-18) — v1.2.0 / versionCode 7
+
+Branch `feature/name-vars-purchase-limit-ui-polish` → PR #12, squash-merged
+to `main` (`6c36188`). Six items the client reported after live use of
+v1.1.1. No local JDK was available this session (memory's "local toolchain"
+note from 2026-07-16 doesn't hold in every environment) — CI was the only
+compiler, per CLAUDE.md constraint 8's baseline.
+
+### `{first_name}` / `{last_name}` — long M-Pesa names were costing a segment
+Some customer names run up to 50 characters, pushing a template past one GSM-7
+segment. `TemplateEngine` gained `firstNameOf`/`lastNameOf` (split on the
+first space; a single-word name leaves `{last_name}` as a clean gap, same
+handling as a missing `{name}`) and `TemplateVariable.FIRST_NAME`/
+`LAST_NAME`, allowed in **both** flows (general identity fields, not
+flow-specific like `{package}`). No UI changes needed — the variable chips on
+the Templates screen already render from `TemplateVariable.allowedFor(type)`.
+
+### Bundle purchase-limit (once/day vs multiple/day) — the bundle-category pattern, repeated
+Safaricom caps some offers to one purchase per number per day. Implemented as
+a byte-for-byte repeat of the `BundleCategory` pattern (see "Bundle
+categories" in the 2026-07-16 section below):
+- `domain/rules/PurchaseLimit.kt` (new): `ONCE_PER_DAY` / `MULTIPLE_PER_DAY`,
+  `DEFAULT = MULTIPLE_PER_DAY` — deliberately the *unrestricted* default, so
+  every bundle the client already had entered keeps behaving exactly as
+  before until they edit one to say otherwise.
+- `PricingRuleEntity.purchaseLimit: String?` — nullable, no `@ColumnInfo`
+  default, migrated via a plain `ALTER TABLE pricing_rules ADD COLUMN
+  purchaseLimit TEXT` (`MIGRATION_2_3`, `DB_VERSION` 2→3). Confirmed via the
+  CI `room-schemas` artifact that the resulting column
+  (`` `purchaseLimit` TEXT ``, no default) is byte-identical whether reached
+  by migration or by a fresh install at v3 — same as the category migration,
+  and for the same reason (nullable-no-default dodges Room's default-value
+  quoting validation entirely). `app/schemas/.../3.json` committed from the
+  artifact, same workflow as `2.json`.
+- `PriceListCodec`: optional `"purchase_limit"` key, version stays `1`
+  (optional field — an older app ignores it, this app defaults an absent/
+  unknown value to `DEFAULT`).
+- Rules editor: a second `SingleChoiceSegmentedButtonRow` under Category.
+  `RuleCard` only shows a badge when `ONCE_PER_DAY` — the common case
+  (unrestricted) stays visually quiet, same convention as `rules_paused`.
+- `TemplateVariable.PURCHASE_LIMIT("{purchase_limit}")`, **matched flow
+  only** (parallels `{package}`). Always renders a non-blank phrase — "once a
+  day" / "as many times as you like" — so the agent builds their own sentence
+  around it exactly like they would around `{package}`, rather than the app
+  baking in conditional copy. This was an explicit choice over a
+  blank-unless-restricted design (asked, user picked always-a-phrase).
+
+### Softer failure styling — red border + red text, not a red fill
+Client: the solid `errorContainer` fill on a failed send was "too harsh".
+`ActivityLogScreen.LogRow` and `HomeScreen.RecentReplyCard` both changed to
+default card colors + a `BorderStroke(1.5.dp, colorScheme.error)`, with only
+the status text (and `LogRow`'s failure-reason line) colored
+`colorScheme.error`. Selection highlight in `LogRow` still wins outright — a
+selected row is never also drawn with the failure border. Deliberately did
+**not** touch the several other `errorContainer` usages in the app (Home's
+setup-warning cards, Templates' validation card, Settings/OEM-guidance error
+cards) — the client's complaint was specifically about the failed-*send*
+card, not every red surface in the app.
+
+### Bundle name added to Home's recent-replies card
+`RecentReplyCard` already had `ActivityRecord.bundleDescription` available
+(it flows in via `PaymentPlanner`) but never rendered it — `LogRow` on the
+Activity log already did. Now both show it.
+
+### Per-row copy menu on the Activity log
+`LogRow` gained a 3-dot (`MoreVert`) `IconButton` + `DropdownMenu`: copy the
+M-Pesa code, the phone number, or the full outbound message
+(`replyBody` — disabled when null, i.e. `SILENT` rows where nothing was ever
+rendered). Reuses the same `LocalClipboardManager` + `Toast` pattern the
+existing multi-select "Copy" already used (see the 2026-07-16 gateway-fix
+session).
+
+### Version: 1.1.1 (6) → 1.2.0 (7)
+Backward-compatible feature release per the project's own stated convention
+in `app/build.gradle.kts`. Tagged and released in the same session — see the
+release note below this section (or its own dated entry if this one has
+scrolled past by the time you're reading it).
 
 ---
 

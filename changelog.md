@@ -4,6 +4,46 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-18 — Name variables, bundle purchase-limit, softer failure styling, log copy menu
+
+Branch `feature/name-vars-purchase-limit-ui-polish` → PR #12, squash-merged
+to `main`. Ships as **v1.2.0** (versionCode 7), tagged and released this
+session with the client's explicit go-ahead. Six items from the client's
+live use of v1.1.1.
+
+- **`{first_name}` / `{last_name}` template variables** — some M-Pesa names
+  run up to 50 characters and were pushing replies into a second billed SMS
+  segment. Split off `{name}` in `TemplateEngine`; allowed in both flows.
+- **Bundle purchase-limit** — Safaricom restricts some offers to one
+  purchase per number per day. New `PurchaseLimit` enum, a picker in the
+  Rules editor next to Category, and a `{purchase_limit}` template variable
+  (matched flow) rendering "once a day" / "as many times as you like" so the
+  agent can mention it. Room `v2→v3` migration (nullable `ADD COLUMN`, same
+  shape as the category migration) — fully backward compatible with the
+  client's existing price list, which reads as unrestricted (today's
+  behavior) until a bundle is edited to say otherwise.
+- **Softer failure styling** — the solid red "failed to send" card was "too
+  harsh" per the client. Both the Activity log row and Home's recent-replies
+  card now use a red border + red status text instead of a red fill.
+- **Bundle name on Home's recent-replies card** — was already on the
+  Activity log row, now also shown on Home alongside price/name/time/status.
+- **Per-row copy menu on the Activity log** — a 3-dot menu per row to copy
+  the M-Pesa code, phone number, or full outbound message.
+- **Version bump** — 1.1.1 (6) → 1.2.0 (7).
+
+Full technical detail (schema shape, why `MULTIPLE_PER_DAY` is the default,
+what was deliberately left untouched) is in `memory.md`'s dated section for
+this session.
+
+### Process note
+No local JDK was available in this session's environment — CI was the only
+compiler (CLAUDE.md constraint 8's baseline; the 2026-07-16 "local toolchain"
+note doesn't hold everywhere this project runs). The `app/schemas/.../3.json`
+Room schema was pulled from the CI `room-schemas` artifact and committed
+before merge, same workflow as the `2.json` category migration.
+
+---
+
 ## 2026-07-16 — Gateway false-failure (5x duplicate sends) + activity select/copy/delete
 
 Branch `feature/gateway-fix-and-log-actions` → PR #10. Ships in the unreleased
