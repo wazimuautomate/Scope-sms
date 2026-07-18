@@ -176,7 +176,7 @@ till-confirmation wording has known minor variants.
 4. Exit criteria are listed per phase in `02-BUILD-PLAN.md` — treat them as
    a checklist, not a suggestion.
 5. **Merge to `main` only after exit criteria are met and CI is green.** No
-   direct commits to `main`. Squash or clean commit history on merge.
+   direct commits to `main`. Squash or clean commit history on merge. Do not be lazy to commit to main.
 6. **After every execution (every session, whether it finished a phase, made
    partial progress, or got blocked):**
    - Append an entry to `changelog.md` (date, what changed, branch/PR ref).
@@ -225,11 +225,3 @@ ID are secrets and must be stored encrypted, entered by the agent, never
 committed to the repo or logged in plaintext. Don't add crash/analytics SDKs
 that transmit device or usage data without this being explicitly decided and
 recorded in `memory.md` first.
-
-## Note on `01-UI-DESIGN-PROMPT.md`
-That file predates this pivot. Settings needs a new "SMS Gateway" section
-(API key, sender ID, test-send button) and the two independent toggles
-(Unmatched auto-reply / Matched purchase-confirmation) need to be visible
-on Home, not buried. Templates screen needs to distinguish the two template
-types. Flag to the user if a refreshed Stitch prompt is wanted — don't
-silently redesign screens without it.
