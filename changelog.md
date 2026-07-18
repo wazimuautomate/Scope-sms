@@ -4,6 +4,40 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-18 — v1.3.0 released; a release-pipeline bug the quota exposed, fixed
+
+Direct follow-on from the trusted-senders session below. Bumped to
+**v1.3.0 / versionCode 8** for that feature (PR #16), then hit a second,
+more serious problem cutting the actual release.
+
+### The tag push alone did not ship the release
+`release.yml`'s run for the `v1.3.0` tag failed — and this time it wasn't
+cosmetic like the earlier `build.yml` runs. The same storage-quota-driven
+`Upload test + lint reports` failure caused every step after it to be
+**skipped**, including signing the APK, verifying it, publishing the GitHub
+Release, and writing `update.json`. No release went out, even though the
+tag existed and the workflow had "run."
+
+### Fixed: artifact uploads can no longer block the pipeline
+PR #17 added `continue-on-error: true` to every `upload-artifact` step in
+both `build.yml` and `release.yml` — five steps. They're convenience/audit
+uploads, never gates; test/lint/build/sign/verify/publish steps are
+untouched. Confirmed working because PR #17's own CI run went fully green
+with the storage quota still exhausted.
+
+### Then actually published v1.3.0
+`gh workflow run release.yml --ref main -f tag=v1.3.0` — re-ran the release
+workflow's now-fixed `main` definition against the already-existing tag, no
+retagging needed. `gh release view v1.3.0` confirms the APK + `update.json`
+are attached, and `update.json` on `main` reads `versionCode: 8` /
+`versionName: "1.3.0"`. The agent's app will pick this up as an in-place
+update.
+
+Full incident detail and the "what to check first if a release run fails"
+note are in `memory.md`.
+
+---
+
 ## 2026-07-18 — Trusted M-Pesa senders whitelist + a CI storage-quota fire
 
 Branch `feature/trusted-sms-senders` → PR #14, squash-merged to `main`. Not

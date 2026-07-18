@@ -8,11 +8,14 @@
 
 ## Phase status
 
-All phases are on `main` as of 2026-07-18 (last merge: PR #14, trusted-senders
-whitelist, below). PR #12 (name variables + bundle purchase-limit + UI polish)
-was fully CI-green. **PR #14 was merged with the artifact-upload steps
-red** — see "🔴 CI artifact storage quota" below for why that was still the
-right call.
+All phases are on `main` as of 2026-07-18. Released: **v1.3.0 / versionCode
+8** (trusted-senders whitelist), published via a manual `workflow_dispatch`
+of `release.yml` against `main` for the existing `v1.3.0` tag — see "🔴 A
+release can fail after the tag is pushed" below; the tag's own automatic
+push-triggered run did not complete the release. PR #12 was fully CI-green;
+PR #14 merged with the artifact-upload steps red (see "🔴 CI artifact storage
+quota" below) — both are fine, read the entries before assuming red CI means
+broken code.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -33,6 +36,56 @@ right call.
 **What "🟡" means here: the code is written and tested as far as this workflow
 can test it. Every remaining item needs a physical phone or an answer from the
 client.** Nothing is 🟡 because it was left half-finished.
+
+---
+
+## 🔴 A release can fail *after* the tag is pushed — v1.3.0's first attempt silently skipped signing/publishing (2026-07-18)
+
+Direct continuation of the artifact-quota incident in the entry below this
+one. Tagging `v1.3.0` triggered `release.yml` as normal, but the run
+**failed outright** — not the cosmetic red the quota caused on `build.yml`
+runs. Here, `Upload test + lint reports` failing (same storage quota) caused
+**every subsequent step to be skipped**: `Materialise the signing keystore`,
+`Build signed release APK`, `Verify the APK is signed`, `Publish the GitHub
+Release`, `Generate update.json`, `Attach update.json to the Release`,
+`Commit update.json to main` all show `-` (skipped), not `✓`. **No release
+went out.** GitHub Actions' default behaviour — a failed step skips
+everything after it in the same job unless that step sets its own
+`continue-on-error` — had never mattered before because nothing this
+consequential had followed an upload step.
+
+### Fix: `continue-on-error: true` on every `upload-artifact` step
+PR #17, `ci/decouple-artifact-uploads-from-pipeline`, merged straight to
+`main` (small enough to skip a feature branch's usual scope, still went
+through PR+CI per the workflow rule). Touches every `upload-artifact` step in
+both `build.yml` and `release.yml` — five steps total. These are convenience/
+audit uploads for a human, never gates; the steps that actually decide
+whether code is good (`Run unit tests`, `Run Android lint`, `Run instrumented
+tests`) and whether a release is trustworthy (`Build signed release APK`,
+`Verify the APK is signed`, `Publish the GitHub Release`) are untouched and
+still hard-fail normally. **Self-verifying**: this PR's own CI run went fully
+green immediately, with the storage quota still exhausted — proof the fix
+does what it says rather than just silencing a symptom.
+
+### Then: publish v1.3.0 for real via `workflow_dispatch`
+`release.yml` already accepted a manual `tag` input for exactly this kind of
+retry (`workflow_dispatch: inputs: tag`). Once the fix was on `main`:
+```
+gh workflow run release.yml --ref main -f tag=v1.3.0
+```
+This runs the **current `main` workflow definition** (the fix) against the
+**existing tag's source** (`ref: github.event.inputs.tag` in the checkout
+step) — no need to delete and re-push the tag. Confirmed working:
+`gh release view v1.3.0` shows the APK + `update.json` assets, and
+`update.json` on `main` reads `versionCode: 8` / `versionName: "1.3.0"`.
+
+**Lesson for next time a release run fails**: check *which* step failed and
+what came after it before assuming a retry (of the same tag-push trigger)
+will do anything different. If the failure is upstream of signing/
+publishing and those steps show `-` rather than `✓`/`X`, the release did not
+happen regardless of what the tag or `update.json` might already suggest —
+verify with `gh release view <tag>` and the actual `update.json` content on
+`main`, not just "the workflow ran."
 
 ---
 
