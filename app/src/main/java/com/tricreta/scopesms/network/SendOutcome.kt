@@ -32,6 +32,12 @@ sealed interface SendOutcome {
  * not: it will fail identically every time, and the queue would burn its
  * attempts and the agent's time against a wall. Those must surface in Settings
  * instead (CLAUDE.md, gateway section).
+ *
+ * **Note (2026-07-19, send-once policy):** the queue no longer auto-retries
+ * anything — the client was being re-billed for retried sends. So [retryable]
+ * no longer gates a re-send; every failure is terminal and shown in the activity
+ * log, and recovery is a deliberate manual Force-send. The flag is kept as an
+ * honest classification of the failure, not as a retry switch.
  */
 sealed interface SendFailure {
 
@@ -112,13 +118,13 @@ sealed interface SendFailure {
     /** HTTP 429. Gateway limit is 100 req/min per API key. Back off, don't drop. */
     data object RateLimited : SendFailure {
         override val retryable = true
-        override val description = "Gateway rate limit reached (100/min) — will retry"
+        override val description = "Gateway rate limit reached (100/min)"
     }
 
     /** HTTP 5xx. The gateway's problem, and usually temporary. */
     data class ServerError(val httpCode: Int) : SendFailure {
         override val retryable = true
-        override val description = "Gateway server error (HTTP $httpCode) — will retry"
+        override val description = "Gateway server error (HTTP $httpCode)"
     }
 
     /**
@@ -129,13 +135,13 @@ sealed interface SendFailure {
      */
     data object NoConnectivity : SendFailure {
         override val retryable = true
-        override val description = "No internet connection — queued until connectivity returns"
+        override val description = "No internet connection when the app tried to send"
     }
 
     /** The request exceeded the client timeout. */
     data object Timeout : SendFailure {
         override val retryable = true
-        override val description = "Gateway did not respond in time — will retry"
+        override val description = "Gateway did not respond in time"
     }
 
     /**

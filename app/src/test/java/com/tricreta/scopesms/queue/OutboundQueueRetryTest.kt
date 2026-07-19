@@ -26,26 +26,30 @@ class OutboundQueueRetryTest {
     private val credentials = GatewayCredentials(apiKey = "k", senderId = "SCOPE SMS")
 
     @Test
-    fun `a retryable failure leaves the job pending rather than dropping it`() = runTest {
+    fun `a failed send is recorded terminally under send-once, never left pending`() = runTest {
+        // Send-once (2026-07-19): the client was being re-billed for retried
+        // sends, so a failure is now terminal — FAILED with its reason — rather
+        // than re-queued. The reason is what shows in the activity log.
         val store = FakeOutboundJobStore()
         val queue = queueOf(store, Responds { errorResponse(500) })
         enqueueOne(queue)
 
         val summary = queue.drain()
 
-        assertThat(summary.retryable).isEqualTo(1)
+        assertThat(summary.failed).isEqualTo(1)
         val job = store.allJobs().single()
-        assertThat(job.status).isEqualTo(OutboundJobStatus.PENDING)
+        assertThat(job.status).isEqualTo(OutboundJobStatus.FAILED)
         assertThat(job.attemptCount).isEqualTo(1)
-        // The reason is recorded even mid-retry, so a stuck queue is diagnosable.
         assertThat(job.lastError).contains("server error")
     }
 
     @Test
-    fun `no connectivity holds the job for later, never fails it`() = runTest {
-        // CLAUDE.md constraint 2's core case: a payment arrives while the phone
-        // has no data. WorkManager's NetworkType.CONNECTED constraint then runs
-        // the drain once connectivity is back.
+    fun `a connectivity drop while sending fails the job under send-once`() = runTest {
+        // Under send-once a drop *while sending* is terminal, not a retry: we
+        // can't tell whether the SMS reached the gateway first, so re-sending
+        // could double-charge. (The offline-ARRIVAL case is separate and
+        // unaffected — WorkManager's NetworkType.CONNECTED constraint holds an
+        // unclaimed job PENDING until data returns, so it is still sent once.)
         val store = FakeOutboundJobStore()
         val queue = queueOf(store, Responds { throw IOException("no route to host") })
         enqueueOne(queue)
@@ -53,50 +57,46 @@ class OutboundQueueRetryTest {
         queue.drain()
 
         val job = store.allJobs().single()
-        assertThat(job.status).isEqualTo(OutboundJobStatus.PENDING)
+        assertThat(job.status).isEqualTo(OutboundJobStatus.FAILED)
         assertThat(job.lastError).contains("No internet connection")
     }
 
     @Test
-    fun `a transient failure followed by success sends exactly once`() = runTest {
+    fun `a failed send is not retried on a later drain, so the gateway is hit once`() = runTest {
+        // The token-bleed guard: one 429 must not become a second billed attempt.
         val store = FakeOutboundJobStore()
         val attempts = AtomicInteger(0)
-        val api = Responds {
-            if (attempts.incrementAndGet() == 1) errorResponse(429) else accepted()
-        }
+        val api = Responds { attempts.incrementAndGet(); errorResponse(429) }
         val queue = queueOf(store, api)
         enqueueOne(queue)
 
         val first = queue.drain()
         val second = queue.drain()
 
-        assertThat(first.retryable).isEqualTo(1)
-        assertThat(second.sent).isEqualTo(1)
-        assertThat(attempts.get()).isEqualTo(2)
+        assertThat(first.failed).isEqualTo(1)
+        // FAILED after one attempt; a later drain must not pick it up again.
+        assertThat(second.processed).isEqualTo(0)
+        assertThat(attempts.get()).isEqualTo(1)
         val job = store.allJobs().single()
-        assertThat(job.status).isEqualTo(OutboundJobStatus.SENT)
-        // Cleared on success — a SENT job showing a stale error would read as a
-        // failure in the activity log.
-        assertThat(job.lastError).isNull()
+        assertThat(job.status).isEqualTo(OutboundJobStatus.FAILED)
+        assertThat(job.attemptCount).isEqualTo(1)
     }
 
     @Test
-    fun `retries are bounded and end in a readable failure`() = runTest {
+    fun `a send hits the gateway exactly once across many drains`() = runTest {
         val store = FakeOutboundJobStore()
         val attempts = AtomicInteger(0)
         val queue = queueOf(store, Responds { attempts.incrementAndGet(); errorResponse(500) })
         enqueueOne(queue)
 
-        // Drain more times than the budget allows.
-        repeat(OutboundQueue.DEFAULT_MAX_ATTEMPTS + 3) { queue.drain() }
+        // Drain repeatedly; send-once must still only reach the gateway one time.
+        repeat(5) { queue.drain() }
 
         val job = store.allJobs().single()
         assertThat(job.status).isEqualTo(OutboundJobStatus.FAILED)
-        assertThat(job.attemptCount).isEqualTo(OutboundQueue.DEFAULT_MAX_ATTEMPTS)
-        // Stops calling the gateway once the budget is spent — a FAILED job must
-        // not be picked up again by later drains.
-        assertThat(attempts.get()).isEqualTo(OutboundQueue.DEFAULT_MAX_ATTEMPTS)
-        assertThat(job.lastError).contains("gave up after 5 attempts")
+        assertThat(job.attemptCount).isEqualTo(1)
+        assertThat(attempts.get()).isEqualTo(1)
+        assertThat(job.lastError).contains("server error")
     }
 
     @Test
@@ -124,20 +124,24 @@ class OutboundQueueRetryTest {
     }
 
     @Test
-    fun `a job stranded by process death is reclaimed on the next drain`() = runTest {
-        // The invisible drop: SENDING is set immediately before the HTTP call,
-        // so a kill mid-send (routine on these devices) leaves a job that is
-        // never sent, never retried and never reported.
+    fun `a job stranded mid-send is failed, not resent, under send-once`() = runTest {
+        // The other half of send-once: a kill mid-send may have happened *after*
+        // the SMS went out, so re-sending would double-charge. releaseStuckJobs
+        // returns the row to PENDING, but its one attempt is already spent, so the
+        // next drain fails it instead of calling the gateway again. The agent
+        // Force-sends by hand if the customer truly never received it.
         val store = FakeOutboundJobStore()
-        val queue = queueOf(store, Responds { accepted() })
+        val attempts = AtomicInteger(0)
+        val queue = queueOf(store, Responds { attempts.incrementAndGet(); accepted() })
         enqueueOne(queue)
         val id = store.allJobs().single().id
-        store.markSending(id) // simulate the crash
+        store.markSending(id) // simulate the crash: claimed, attempt burned, never returned
 
         val summary = queue.drain()
 
-        assertThat(summary.sent).isEqualTo(1)
-        assertThat(store.allJobs().single().status).isEqualTo(OutboundJobStatus.SENT)
+        assertThat(summary.failed).isEqualTo(1)
+        assertThat(attempts.get()).isEqualTo(0) // the gateway is NOT called again
+        assertThat(store.allJobs().single().status).isEqualTo(OutboundJobStatus.FAILED)
     }
 
     @Test

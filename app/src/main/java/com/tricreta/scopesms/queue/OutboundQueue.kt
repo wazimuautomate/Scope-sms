@@ -27,8 +27,21 @@ class OutboundQueue(
      * Robolectric into every one of those tests.
      */
     private val results: SendResultListener = SendResultListener.None,
+    /**
+     * Send-path logging for field diagnosis — logcat in production, no-op in
+     * tests. A port rather than a direct `android.util.Log` call so this class
+     * stays pure Kotlin and JVM-testable (this module runs unit tests WITHOUT
+     * `returnDefaultValues`, so a real `Log` call would throw "not mocked").
+     */
+    private val log: OutboundLog = OutboundLog.None,
     /** Injectable so tests don't depend on wall-clock time. */
     private val now: () -> Long = System::currentTimeMillis,
+    /**
+     * Attempts allowed per job. **1 = send exactly once (the default, and the
+     * client's directive).** See the send-once guard in [sendOne]: a job that has
+     * already spent its one attempt is failed, never re-sent, because a re-send
+     * risks a duplicate billed SMS. Kept injectable so a test can prove the guard.
+     */
     private val maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
 ) {
 
@@ -146,7 +159,23 @@ class OutboundQueue(
     }
 
     private suspend fun sendOne(job: OutboundJob): DrainSummary {
+        // Send-once guard (2026-07-19, client directive — stop duplicate billing).
+        // A job is attempted AT MOST once. The attempt is burned at claim time
+        // (OutboundJobDao.claimForSending), so a job arriving here with an attempt
+        // already spent is one a previous run claimed and then died on — its SMS
+        // may already have gone out and been charged by the gateway. Re-sending it
+        // is exactly the duplicate the client is paying for, so we refuse: record
+        // it FAILED (reason logged + shown in the activity log) and leave recovery
+        // to a deliberate, manual Force-send by the agent.
+        if (job.attemptCount >= maxAttempts) {
+            log.failed(job.transactionCode, STRANDED_REASON)
+            store.markFailed(job.id, STRANDED_REASON)
+            results.onFailed(job.transactionCode, STRANDED_REASON)
+            return DrainSummary(failed = 1)
+        }
+
         store.markSending(job.id)
+        log.sending(job.transactionCode, job.phone, job.senderId)
 
         // job.senderId, not the current setting: the job must go out under the ID
         // it was created with. See OutboundJob.senderId and ScopeSmsGateway.sendSms.
@@ -158,47 +187,24 @@ class OutboundQueue(
 
         return when (outcome) {
             is SendOutcome.Sent -> {
+                log.sent(job.transactionCode, outcome.messageId)
                 store.markSent(job.id, outcome.messageId)
                 results.onSent(job.transactionCode, outcome.messageId)
                 DrainSummary(sent = 1)
             }
 
             is SendOutcome.Failed -> {
-                val reason = outcome.reason
-                // attemptCount is the count *before* this attempt, so this
-                // attempt is number attemptCount + 1.
-                val attemptsUsed = job.attemptCount + 1
-                val budgetExhausted = attemptsUsed >= maxAttempts
-
-                when {
-                    !reason.retryable -> {
-                        // A bad API key or an unregistered sender ID fails
-                        // identically forever. Retrying burns the agent's time
-                        // and hides the real problem, which they must fix in
-                        // Settings (network/README.md).
-                        store.markFailed(job.id, reason.description)
-                        results.onFailed(job.transactionCode, reason.description)
-                        DrainSummary(failed = 1)
-                    }
-
-                    budgetExhausted -> {
-                        val detail = "${reason.description} (gave up after $attemptsUsed attempts)"
-                        store.markFailed(job.id, detail)
-                        results.onFailed(job.transactionCode, detail)
-                        DrainSummary(failed = 1)
-                    }
-
-                    else -> {
-                        // Back to PENDING with the reason recorded. WorkManager's
-                        // backoff decides when we try again. Deliberately *not*
-                        // reported to [results]: the activity log row stays
-                        // QUEUED, which is the truth — the reply is still coming.
-                        // Flipping it to FAILED and back would have the agent
-                        // chasing a customer the app is about to text anyway.
-                        store.markRetryable(job.id, reason.description)
-                        DrainSummary(retryable = 1)
-                    }
-                }
+                // No automatic retry, on purpose (send-once). Even a
+                // "retryable"-typed failure (429, timeout, dropped socket) is
+                // recorded terminally: we cannot tell whether the SMS reached the
+                // gateway before the failure, so retrying risks a second billed
+                // message. The reason is logged and shown in the activity log;
+                // Force-send is the manual, deliberate recovery.
+                val reason = outcome.reason.description
+                log.failed(job.transactionCode, reason)
+                store.markFailed(job.id, reason)
+                results.onFailed(job.transactionCode, reason)
+                DrainSummary(failed = 1)
             }
         }
     }
@@ -212,13 +218,18 @@ class OutboundQueue(
 
     companion object {
         /**
-         * Bounded, per `queue/README.md` ("exhausted retries → FAILED with a
-         * readable reason"). Five attempts against WorkManager's exponential
-         * backoff spans roughly ten minutes — long enough to ride out a tunnel,
-         * a gateway blip or a quick top-up, short enough that the agent learns
-         * a message failed while the customer is still in front of them.
+         * **Send exactly once.** Was 5 (bounded retries with backoff); the client
+         * reported those retries re-sending — and re-billing — the same SMS, so as
+         * of 2026-07-19 a job gets one attempt and then lands in FAILED with a
+         * readable reason. A genuine transient failure is now the agent's call to
+         * Force-send, not the queue's to re-attempt. See the guard in [sendOne].
          */
-        const val DEFAULT_MAX_ATTEMPTS = 5
+        const val DEFAULT_MAX_ATTEMPTS = 1
+
+        /** The activity-log/queue reason for a job the send-once guard refuses to re-send. */
+        const val STRANDED_REASON =
+            "Not resent — the app stopped mid-send, so this may already have gone out. " +
+                "Force-send it only if the customer never received it."
 
         /**
          * How many jobs one drain claims. Bounded so a huge backlog can't hold
@@ -241,8 +252,10 @@ class OutboundQueue(
 /**
  * Where the queue reports a send's final outcome.
  *
- * Only terminal states are reported. A retryable failure leaves the job PENDING
- * and says nothing — see the `else` arm of [OutboundQueue.sendOne].
+ * Under send-once every attempt is terminal, so every send reports here — SENT
+ * via [onSent], any failure via [onFailed]. (Historically a retryable failure
+ * stayed silent while the job cycled PENDING→SENDING→PENDING; there is no such
+ * path now, which is why failures are always visible in the activity log.)
  */
 interface SendResultListener {
 
@@ -255,5 +268,34 @@ interface SendResultListener {
     object None : SendResultListener {
         override suspend fun onSent(transactionCode: String, gatewayMessageId: String?) = Unit
         override suspend fun onFailed(transactionCode: String, reason: String) = Unit
+    }
+}
+
+/**
+ * Send-path logging for field diagnosis — the client asked to "log everything
+ * important when messages are being sent" so failures can be understood.
+ *
+ * A port rather than a direct `android.util.Log` call so [OutboundQueue] stays
+ * pure Kotlin and JVM-testable. The production impl (di/AppContainer) writes to
+ * logcat; tests use [None].
+ *
+ * **Never** pass the API key or the full message body through here — logcat is
+ * scooped up wholesale by bug reports (see the note on `AppContainer.keepInSync`).
+ * The impl masks the phone number; transaction code and gateway reason are safe.
+ */
+interface OutboundLog {
+    /** A send is about to hit the gateway. */
+    fun sending(transactionCode: String, phone: String, senderId: String)
+
+    /** The gateway accepted it. [messageId] is its reply id, which may be blank. */
+    fun sent(transactionCode: String, messageId: String)
+
+    /** The send failed terminally (send-once: no retry). [reason] is the gateway's reason. */
+    fun failed(transactionCode: String, reason: String)
+
+    object None : OutboundLog {
+        override fun sending(transactionCode: String, phone: String, senderId: String) = Unit
+        override fun sent(transactionCode: String, messageId: String) = Unit
+        override fun failed(transactionCode: String, reason: String) = Unit
     }
 }

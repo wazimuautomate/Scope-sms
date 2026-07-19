@@ -77,8 +77,10 @@ class SendJobWorker(
                 )
                 .setBackoffCriteria(
                     BackoffPolicy.EXPONENTIAL,
-                    // WorkManager's floor is 10s. With 5 attempts that spans
-                    // ~10 minutes — see OutboundQueue.DEFAULT_MAX_ATTEMPTS.
+                    // WorkManager's floor is 10s. Backoff now only paces the
+                    // worker coming back for a *backlog* (DrainSummary.morePending);
+                    // per-job retries were removed (send-once, DEFAULT_MAX_ATTEMPTS=1),
+                    // so a failed send is terminal and never re-billed.
                     MIN_BACKOFF_SECONDS,
                     TimeUnit.SECONDS,
                 )
