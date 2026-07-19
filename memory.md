@@ -45,6 +45,63 @@ asset), so we shipped and validate on the live A16/A07/A06 *after* the update.
 That post-release device check + the battery-optimization setting are the two
 open follow-ups.
 
+**Released 2026-07-19: v1.3.2 (vc 10) and v1.4.0 (vc 11)** — see the two 🔴/🟢
+notes just below.
+
+---
+
+## 🔴 Send-once policy (v1.3.2) — the queue no longer auto-retries, by client directive
+
+**What changed and why.** The original design was bounded retries
+(`DEFAULT_MAX_ATTEMPTS = 5`) with WorkManager backoff. The client reported it was
+**re-sending and re-billing** the same SMS. As of v1.3.2 the queue sends **exactly
+once**: `DEFAULT_MAX_ATTEMPTS = 1`, and the guard is checked **before** claiming in
+`OutboundQueue.sendOne` — a job whose one attempt is already spent (e.g. a crash
+left it `SENDING` and `releaseStuckJobs` flipped it back to `PENDING`) is marked
+`FAILED` **without** calling the gateway again. This deliberately closes the
+crash-recovery re-send, which is a prime double-charge source: a killed send may
+already have gone out.
+
+**Consequences future-me must not "fix" by re-adding retries:**
+- Every failure is now terminal → always written to the activity log with the
+  gateway reason. `SendResultListener` reports on every send now (no silent
+  retryable arm). The `LogRow` already shows `failureReason`, so failures are
+  visible with no extra UI.
+- `SendFailure.retryable` is now **informational only** — nothing branches on it
+  in the queue. Descriptions that said "will retry" were removed. Don't wire
+  `retryable` back into a re-send without re-reading this note and the client's
+  reason (token cost).
+- Offline-at-arrival is preserved by the `NetworkType.CONNECTED` work constraint
+  (an unclaimed job stays `PENDING` until data returns, then sends once) — that is
+  NOT a retry. Only a failure *after* a claim is terminal now.
+- Recovery for a genuinely-unsent failure is the manual **Force-send** (below),
+  which bypasses send-once on purpose.
+- Send-path logging: `OutboundLog` port (impl in `AppContainer`, logcat, phone
+  masked; no body/key). Kept a port because unit tests run WITHOUT
+  `returnDefaultValues`, so a real `android.util.Log` call in the JVM-tested
+  `OutboundQueue` would throw "not mocked".
+
+## 🟢 v1.4.0 — activity-log clear, force-send, and full app reset
+
+- **Force-send** (`OutboundQueue.forceSend(txnCode)`, `ForceSendResult`): sends now,
+  bypassing drain AND send-once; reuses the job's captured `senderId`; marks job +
+  log terminal via the same result sink. UI: selection-bar (bulk, confirmed) +
+  per-row menu. No-job rows (logged before enqueue) are reconstructed in
+  `ActivityLogViewModel` from `record.replyBody`/`senderPhone` + current sender ID.
+- **Bulk clear** (`ActivityLogRepository.clearByStatus/clearAll`,
+  `OutboundQueue.cancelPending` deletes `PENDING`+`SENDING`): "clear pending" must
+  cancel the jobs too, or a cleared reply still sends. New DAO deletes; **no Room
+  schema change** (queries only, DB stays version 3).
+- **App reset** (`data/system/AppReset`, wired at `AppContainer.appReset`, called
+  from `SettingsViewModel.resetApp`): deletes the Keystore alias
+  `scope_sms_gateway_credentials` (clearApplicationUserData does NOT), cancels all
+  work, `ActivityManager.clearApplicationUserData()`, then an `AlarmManager`
+  one-shot relaunch. Onboarding re-runs because the `onboarding_complete` flag
+  lives in the wiped DataStore. **Relaunch is best-effort** — if an OEM drops the
+  alarm with the app data, the agent reopens by tapping the icon. Not device-tested
+  yet; the wipe primitive and the Keystore-survives-wipe caveat are the risky bits
+  to verify on a real handset.
+
 ---
 
 ## 🔴 Replies stuck on "Sending…" on newer Samsungs — WorkManager, not the gateway
