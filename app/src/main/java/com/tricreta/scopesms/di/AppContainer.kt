@@ -241,6 +241,14 @@ class AppContainer(context: Context) {
         //     `SendJobWorker.enqueueDrain`, which owns that guard so no caller
         //     has to remember it.
         applicationScope.launch { SendJobWorker.enqueueDrain(appContext) }
+
+        // A periodic safety net so a drain still runs when no new SMS arrives to
+        // trigger one. On the stricter background limits of newer One UI a worker
+        // can be killed mid-send or its KEEP-dropped re-trigger lost, stranding a
+        // job on "Sending…" until the next payment or an app restart. This runs a
+        // drain about every 15 minutes regardless, reclaiming any such job. See
+        // SendJobWorker.enqueuePeriodicDrain.
+        applicationScope.launch { SendJobWorker.enqueuePeriodicDrain(appContext) }
     }
 
     /**

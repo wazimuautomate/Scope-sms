@@ -50,13 +50,16 @@ class OutboundQueue(
         /** Jobs left PENDING for a later attempt — the signal to reschedule. */
         val retryable: Int = 0,
         /**
-         * The pending list was full, so there is very likely more behind it.
+         * A bounded page came back full of rows this drain had already handled,
+         * so there is very likely more behind the limit.
          *
-         * [drain] reads one bounded page. Without this the worker would see a
-         * clean summary, return success, and nothing would reschedule — so a
-         * backlog larger than a page (an agent out of coverage for a few hours)
-         * would strand its tail until the process next started, possibly the next
-         * morning, with those customers still waiting on their prices.
+         * [drain] loops over freshly-queued rows within a single run, but still
+         * reads a bounded page at a time and works through at most
+         * [MAX_DRAIN_PAGES] of them. Without this signal a backlog larger than
+         * that ceiling — or one held up entirely by retryables at the front of the
+         * queue — would strand its tail until the process next started, possibly
+         * the next morning, with those customers still waiting on their prices.
+         * Reporting it lets the worker come back through WorkManager's backoff.
          */
         val morePending: Boolean = false,
     ) {
@@ -110,19 +113,36 @@ class OutboundQueue(
         // reading the pending list — otherwise those jobs are invisible here.
         store.releaseStuckJobs()
 
-        val page = store.pendingJobs(limit = PAGE_SIZE)
-
+        // Rows already handled in *this* drain. A retryable failure re-queues the
+        // same row as PENDING, so without this the loop below would re-read and
+        // re-send it and never terminate. Tracking ids lets one drain finish rows
+        // queued *after* it started — the tail of a burst, whose own drain
+        // re-trigger `ExistingWorkPolicy.KEEP` drops while this worker is still
+        // running — without ever touching a row twice. That tail was the reported
+        // "stays on Sending…": inserted mid-drain, invisible to the old single
+        // snapshot, and left for an SMS or app restart that might never come.
+        val handled = HashSet<Long>()
         var summary = DrainSummary()
-        for (job in page) {
-            summary = summary + sendOne(job)
+
+        repeat(MAX_DRAIN_PAGES) {
+            val page = store.pendingJobs(limit = PAGE_SIZE)
+            val fresh = page.filterNot { it.id in handled }
+            if (fresh.isEmpty()) {
+                // Nothing new to send. A full page of already-handled rows can
+                // still hide more behind the limit (a backlog > PAGE_SIZE); report
+                // it so the worker comes back through WorkManager's backoff rather
+                // than spin here on the retryables sitting at the front of the queue.
+                return summary.copy(morePending = summary.morePending || page.size == PAGE_SIZE)
+            }
+            for (job in fresh) {
+                handled += job.id
+                summary = summary + sendOne(job)
+            }
         }
 
-        // A full page means there is probably more. Deliberately not a loop here:
-        // jobs that come back retryable stay PENDING, so re-querying inside one
-        // drain would keep handing us the same rows and spin. Reporting it lets
-        // the worker come back through WorkManager's backoff, which also
-        // re-checks connectivity and re-honours the rate limit.
-        return summary.copy(morePending = page.size == PAGE_SIZE)
+        // Hit the page ceiling with fresh rows still arriving. Hand back to
+        // WorkManager rather than hold the worker past its execution window.
+        return summary.copy(morePending = true)
     }
 
     private suspend fun sendOne(job: OutboundJob): DrainSummary {
@@ -206,6 +226,15 @@ class OutboundQueue(
          * reported through [DrainSummary.morePending] rather than forgotten.
          */
         const val PAGE_SIZE = 100
+
+        /**
+         * How many [PAGE_SIZE] pages one drain works through before handing back
+         * to WorkManager. Bounds the worst case — a pathological stream of inserts
+         * arriving faster than they can be sent — so the loop in [drain] can never
+         * hold the worker indefinitely. Any realistic backlog is far under
+         * [PAGE_SIZE] × [MAX_DRAIN_PAGES] and drains in a single run.
+         */
+        const val MAX_DRAIN_PAGES = 50
     }
 }
 

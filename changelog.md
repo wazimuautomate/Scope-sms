@@ -4,6 +4,49 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-19 — Field bug: replies stuck on "Sending…" on the client's Samsungs
+
+Branch `fix/queue-stuck-sending-samsung`. Client report: real auto-replies
+stay on **"Sending…"** forever and never go out, while a **manual test send
+from Settings works**. Only under load (~5+/min), toggling WiFi↔mobile data
+does nothing, and it reproduces on the client's **Samsung A16 / A07 / A06**
+but not on the dev's older **A05**.
+
+### Diagnosis (no-network path exonerated)
+"Sending…" is the activity-log `QUEUED` state; it only clears on a *terminal*
+send outcome. The test send bypasses WorkManager + Room entirely
+(`SettingsViewModel.sendTest` → gateway directly), so it proves the HTTP
+client, credentials and parsing are fine and isolates the fault to the
+**WorkManager drain path not running to completion** on the newer One UI
+(stricter App-Standby / expedited-quota / process-reaping; the A05 is the
+dev's daily driver so it sits in the Active bucket). Made *permanent* by two
+code gaps: a job is marked `SENDING` before the HTTP call and only reclaimed
+at the *start of the next drain that runs*, and `drain()` read one page once
+while `ExistingWorkPolicy.KEEP` dropped every burst re-trigger — so a row
+queued mid-drain, or stranded by a mid-send kill, had nothing to drain it.
+
+### Fix (self-healing backstop — WorkManager only, honors CLAUDE.md #6)
+- **Periodic safety-net drain** (`SendJobWorker.enqueuePeriodicDrain`, wired in
+  `AppContainer.start`): a ~15-min `PeriodicWorkRequest` reusing the same
+  `drain()`, so a stranded job is reclaimed within that window even if no new
+  SMS arrives. Turns "stuck forever" into "sends within ~15 min at worst."
+- **`drain()` now finishes the whole burst in one run**: loops over freshly
+  queued rows, tracking handled ids so retryables can't spin it, so a payment
+  that lands mid-drain is still sent by that drain instead of stranded.
+- New JVM test `a job queued while a drain is running is sent by that same
+  drain` locks the burst-tail behavior in.
+- Not a substitute for the device-side battery-optimization exemption the
+  reliability screen already prompts for — both matter; documented in code.
+
+### Status: prepared 1.3.1, NOT yet released
+Bumped `app/build.gradle.kts` to **versionCode 9 / 1.3.1**. Per the agreed
+plan the release path is **validate-on-device first**: get CI green, sideload
+the debug artifact on an A16/A07/A06 and confirm a burst no longer stalls,
+*then* tag `v1.3.1` to cut the release the client updates to. No tag pushed
+this session.
+
+---
+
 ## 2026-07-18 — v1.3.0 released; a release-pipeline bug the quota exposed, fixed
 
 Direct follow-on from the trusted-senders session below. Bumped to
