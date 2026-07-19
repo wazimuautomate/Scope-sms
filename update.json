@@ -1,9 +1,9 @@
 {
-  "versionCode": 9,
-  "versionName": "1.3.1",
-  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/482337697",
-  "sha256": "752c08d157270d8b1a637051dba2f508b9ec81313f3cfbba0c0ee7a6cae7beb4",
-  "releaseNotes": "v1.3.1 — self-heal outbound drain (replies no longer stick on Sending on newer Samsungs)",
+  "versionCode": 10,
+  "versionName": "1.3.2",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/482379576",
+  "sha256": "37d029adc52e55e07707068879e208241d73783276ad2d5bdbaa74fc13d7731f",
+  "releaseNotes": "v1.3.2 — send exactly once (stop retry token-bleed) + send-path logging",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
