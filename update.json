@@ -1,9 +1,9 @@
 {
-  "versionCode": 8,
-  "versionName": "1.3.0",
-  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/481730561",
-  "sha256": "fc69438c2d4782125845ed1fc2b9f0c4abb543ce70aa85b55ae8607e935ebdb5",
-  "releaseNotes": "v1.3.0 (versionCode 8): whitelist additional trusted M-Pesa senders",
+  "versionCode": 9,
+  "versionName": "1.3.1",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/482337697",
+  "sha256": "752c08d157270d8b1a637051dba2f508b9ec81313f3cfbba0c0ee7a6cae7beb4",
+  "releaseNotes": "v1.3.1 — self-heal outbound drain (replies no longer stick on Sending on newer Samsungs)",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
