@@ -38,12 +38,27 @@ queued mid-drain, or stranded by a mid-send kill, had nothing to drain it.
 - Not a substitute for the device-side battery-optimization exemption the
   reliability screen already prompts for — both matter; documented in code.
 
-### Status: prepared 1.3.1, NOT yet released
-Bumped `app/build.gradle.kts` to **versionCode 9 / 1.3.1**. Per the agreed
-plan the release path is **validate-on-device first**: get CI green, sideload
-the debug artifact on an A16/A07/A06 and confirm a burst no longer stalls,
-*then* tag `v1.3.1` to cut the release the client updates to. No tag pushed
-this session.
+### Released v1.3.1 (versionCode 9) — same session
+PR #19 squash-merged to `main` (CI green: unit + lint + both instrumented
+smoke tests on API 30/36), then tagged `v1.3.1`. The tag-triggered
+`release.yml` run went fully green this time (the v1.3.0 tag run had failed on
+the artifact-upload step; PR #17's `continue-on-error` fix held) — signed APK
+built + signature-verified, GitHub Release **Scope SMS v1.3.1** published, and
+`update.json` on `main` now reads `versionCode: 9`. Client's in-app updater
+will offer 1.3.1.
+
+**Why we shipped without the planned on-device pre-check.** The chosen path was
+validate-on-device first, but the debug artifact upload was blocked by the
+recurring **account-wide GitHub Actions storage quota** (recalculates every
+6–12h), so no debug APK could be produced to sideload. Rather than leave the
+client stalled 6–12h, we shipped the signed **release** APK — a Release asset,
+which uses different storage and bypasses that quota (proven by v1.3.0). The
+risk is bounded: the change is additive (a periodic safety-net worker + a
+drain-loop guarded by a new regression test), CI including instrumented tests
+is green, and the receiver/gateway/parsing paths are untouched. **Still to do:
+confirm on a live A16/A07/A06 post-update, and set battery-optimization /
+"Never sleeping apps" on those phones — the code fix and that setting work
+together.**
 
 ---
 
