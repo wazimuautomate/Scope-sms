@@ -164,6 +164,36 @@ class OutboundQueueRetryTest {
     }
 
     @Test
+    fun `a job queued while a drain is running is sent by that same drain`() = runTest {
+        // The burst tail — the crux of the "stays on Sending…" report. enqueueDrain
+        // uses ExistingWorkPolicy.KEEP, so a payment that lands while a drain is
+        // already in flight has its own drain re-trigger dropped. The old drain
+        // read the pending list exactly once, so that late row was invisible to it
+        // and sat PENDING until an unrelated SMS or an app restart — which, on a
+        // quiet tail of a burst, might never come. One drain must now finish the
+        // whole burst, including rows queued after it began.
+        val store = FakeOutboundJobStore()
+        lateinit var queue: OutboundQueue
+        val calls = AtomicInteger(0)
+        val api = Responds {
+            // A second payment arrives while the first is mid-send.
+            if (calls.incrementAndGet() == 1) {
+                queue.enqueue("TX-LATE", "254700000099", "Hi, prices: 20=1GB", credentials.senderId)
+            }
+            accepted()
+        }
+        queue = queueOf(store, api)
+        enqueueOne(queue)
+
+        val summary = queue.drain()
+
+        assertThat(summary.sent).isEqualTo(2)
+        assertThat(store.allJobs()).hasSize(2)
+        assertThat(store.allJobs().map { it.status }.toSet())
+            .containsExactly(OutboundJobStatus.SENT)
+    }
+
+    @Test
     fun `one failing job does not strand the jobs behind it`() = runTest {
         val store = FakeOutboundJobStore()
         val calls = AtomicInteger(0)

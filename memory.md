@@ -37,6 +37,73 @@ broken code.
 can test it. Every remaining item needs a physical phone or an answer from the
 client.** Nothing is 🟡 because it was left half-finished.
 
+**In flight (2026-07-19): v1.3.1 / versionCode 9 prepared on branch
+`fix/queue-stuck-sending-samsung`, NOT released** — the "replies stuck on
+Sending…" fix below. Release deliberately gated on a real-device check first
+(validate on A16/A07/A06, then tag `v1.3.1`).
+
+---
+
+## 🔴 Replies stuck on "Sending…" on newer Samsungs — WorkManager, not the gateway
+
+**Symptom (client, 2026-07-19):** real auto-replies stay on **"Sending…"**
+forever; a **manual test send from Settings works**; only under load (~5+/min);
+WiFi↔mobile-data toggle changes nothing; reproduces on **Samsung A16 / A07 /
+A06** but not on the dev's older **A05**.
+
+**Why the clues point where they do.** "Sending…" is the activity-log `QUEUED`
+state (`NotifyStatus.QUEUED`, string literally "Sending…"); it clears only on a
+*terminal* send outcome — retryable attempts report nothing on purpose. The test
+send bypasses WorkManager + Room and hits the gateway directly
+(`SettingsViewModel.sendTest`), so it working proves HTTP client, credentials and
+response parsing are fine. That isolates the fault to **the WorkManager drain not
+running to completion in the background** on the stricter newer One UI
+(App-Standby bucket demotion, expedited-quota exhaustion, process reaping — all
+worse when the app isn't battery-exempt). The A05 is the dev's daily driver, so
+it sits in the Active bucket and drains promptly: a textbook "works on my device."
+The WiFi↔data toggle doing nothing corroborates it — this is a scheduling /
+process-lifecycle problem, not connectivity (and the `NetworkType.CONNECTED`
+constraint means a handover can actively *cancel* a running drain mid-send).
+
+**Why it was permanent, not just slow — two code gaps that removed self-healing:**
+1. A job is marked `SENDING` *before* the HTTP call (`OutboundQueue.sendOne`),
+   and the only thing that reclaims a `SENDING` row is `releaseStuckJobs()`,
+   which runs *only at the start of a drain that actually executes*. Kill the
+   worker mid-send and the row is orphaned until some *future* drain runs.
+2. `drain()` read one page once, and `SendJobWorker.enqueueDrain` uses
+   `ExistingWorkPolicy.KEEP` — so a payment queued while a drain was already in
+   flight had its re-trigger dropped and was invisible to the running drain.
+   With no periodic worker, the only things that ever started a fresh drain were
+   a new SMS or a process start. On a quiet tail of a burst, neither came.
+
+**Fix shipped in 1.3.1 (self-healing backstop — WorkManager only, per CLAUDE.md
+constraint 6; the heavier foreground-service/UIDT option was explicitly *not*
+taken):**
+- `SendJobWorker.enqueuePeriodicDrain` — a ~15-min `PeriodicWorkRequest`
+  (WorkManager's floor) reusing the same `drain()`, enqueued unique+`KEEP` from
+  `AppContainer.start`. Guarantees a drain (hence `releaseStuckJobs` + a pending
+  sweep) at least every ~15 min with no user action. "Stuck forever" → "≤ ~15
+  min worst case." No `setExpedited` (periodic can't be expedited).
+- `OutboundQueue.drain()` now loops within one run, re-reading pending rows and
+  tracking a `handled` id set so retryables can't spin it, `MAX_DRAIN_PAGES`
+  bounds the worst case. A row queued mid-drain is now sent by that same drain.
+- Regression test: `a job queued while a drain is running is sent by that same
+  drain` (OutboundQueueRetryTest).
+
+**Still true / gotchas:**
+- This is NOT a full substitute for the **battery-optimization exemption** the
+  reliability screen already prompts for (`BatteryOptimizationManager`,
+  `ui/common/BatteryExemption.kt`). On a doze-restricted app even periodic work
+  is deferred. Check on the client's phones: Settings → Battery → is the app
+  under **"Sleeping apps"** / is per-app optimization ON? Add it to **"Never
+  sleeping apps."** Likely a big part of the real-world cure alongside the code.
+- **Fastest field confirmation of the diagnosis:** when messages are stuck, have
+  the client open the app foreground for ~1 min — `AppContainer.start` fires a
+  drain whose `releaseStuckJobs` reclaims them. If they flip to Sent, confirmed.
+- Not device-verified yet. CI-green ≠ verified for a WorkManager/OEM behavior
+  change (CLAUDE.md testing expectations). Needs the A16/A07/A06 sideload check
+  before `v1.3.1` is tagged.
+
 ---
 
 ## 🔴 A release can fail *after* the tag is pushed — v1.3.0's first attempt silently skipped signing/publishing (2026-07-18)

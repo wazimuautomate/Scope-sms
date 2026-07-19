@@ -4,10 +4,12 @@ import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import android.util.Log
 import androidx.work.WorkerParameters
@@ -105,8 +107,68 @@ class SendJobWorker(
             }
         }
 
+        private const val PERIODIC_WORK_NAME = "scope-sms-outbound-drain-periodic"
+
+        /**
+         * A safety net that drains on a fixed cadence, independent of any SMS.
+         *
+         * [enqueueDrain] only fires on a fresh payment or a process start, and
+         * under `ExistingWorkPolicy.KEEP` a burst's later re-triggers are dropped
+         * while a drain is already in flight. On the stricter background limits of
+         * newer One UI a worker can also be killed mid-send, leaving a job SENDING
+         * that only the *next* drain's `releaseStuckJobs` reclaims — and if no new
+         * SMS arrives, that next drain never comes. That is the "stays on Sending…"
+         * the agent reported on the A16/A07/A06 while an older A05 was fine.
+         *
+         * This periodic request closes the gap: WorkManager runs it roughly every
+         * [PERIODIC_INTERVAL_MINUTES] minutes (its floor is 15), so a stranded job
+         * is reclaimed and retried within that window at worst, with no user
+         * action. It reuses the same [doWork]/[OutboundQueue.drain] and so is
+         * idempotent with the one-time path. `KEEP` so re-registering on every
+         * start doesn't reset the running schedule.
+         *
+         * No `setExpedited` here — expedited is a one-time-work concept; a periodic
+         * safety net is deferrable by nature. This is not a substitute for the
+         * battery-optimization exemption the reliability screen already prompts
+         * for: on a doze-restricted app even periodic work is deferred, so both
+         * matter.
+         */
+        fun enqueuePeriodicDrain(context: Context) {
+            val request = PeriodicWorkRequestBuilder<SendJobWorker>(
+                PERIODIC_INTERVAL_MINUTES,
+                TimeUnit.MINUTES,
+            )
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build(),
+                )
+                .setBackoffCriteria(
+                    BackoffPolicy.EXPONENTIAL,
+                    MIN_BACKOFF_SECONDS,
+                    TimeUnit.SECONDS,
+                )
+                .build()
+
+            // Same guard and rationale as enqueueDrain: a skipped schedule is far
+            // cheaper than an uncaught throw on a process-start or receiver path.
+            try {
+                WorkManager.getInstance(context)
+                    .enqueueUniquePeriodicWork(
+                        PERIODIC_WORK_NAME,
+                        ExistingPeriodicWorkPolicy.KEEP,
+                        request,
+                    )
+            } catch (e: IllegalStateException) {
+                Log.e(TAG, "WorkManager unavailable; periodic safety-net drain not scheduled.", e)
+            }
+        }
+
         private const val TAG = "ScopeSms/SendWorker"
 
         private const val MIN_BACKOFF_SECONDS = 10L
+
+        /** WorkManager's minimum periodic interval is 15 minutes; match its floor. */
+        private const val PERIODIC_INTERVAL_MINUTES = 15L
     }
 }
