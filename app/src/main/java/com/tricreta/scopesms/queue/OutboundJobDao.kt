@@ -111,6 +111,10 @@ interface OutboundJobDao {
         from: OutboundJobStatus = OutboundJobStatus.SENDING,
         to: OutboundJobStatus = OutboundJobStatus.PENDING,
     ): Int
+
+    /** Deletes every job in [status]. Cancels unsent jobs on "clear pending". */
+    @Query("DELETE FROM outbound_jobs WHERE status = :status")
+    suspend fun deleteByStatus(status: OutboundJobStatus): Int
 }
 
 /** Thin adapter from [OutboundJobDao] to the port. Deliberately logic-free. */
@@ -137,6 +141,9 @@ class RoomOutboundJobStore(private val dao: OutboundJobDao) : OutboundJobStore {
 
     override suspend fun jobByTransactionCode(transactionCode: String): OutboundJob? =
         dao.jobByTransactionCode(transactionCode)
+
+    override suspend fun deleteByStatus(status: OutboundJobStatus): Int =
+        dao.deleteByStatus(status)
 
     private companion object {
         /** Room's documented return for an ignored @Insert conflict. */

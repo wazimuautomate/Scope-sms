@@ -57,4 +57,12 @@ interface OutboundJobStore {
     suspend fun releaseStuckJobs(): Int
 
     suspend fun jobByTransactionCode(transactionCode: String): OutboundJob?
+
+    /**
+     * Deletes every job in [status], returning how many were removed.
+     *
+     * Used to cancel unsent jobs when the agent clears pending messages — a
+     * cleared reply must not still go out.
+     */
+    suspend fun deleteByStatus(status: OutboundJobStatus): Int
 }

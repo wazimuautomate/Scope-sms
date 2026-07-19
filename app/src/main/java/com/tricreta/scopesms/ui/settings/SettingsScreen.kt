@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,6 +58,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var confirmReset by rememberSaveable { mutableStateOf(false) }
 
     LifecycleResumeEffect(viewModel) {
         viewModel.refresh()
@@ -152,12 +155,70 @@ fun SettingsScreen(
         // The in-app updater — its own ViewModel so the download is cancellable
         // and it owns the install/permission launchers. See ui/update/.
         UpdateSection(modifier = Modifier.fillMaxWidth())
+
+        HorizontalDivider()
+        SectionTitle(stringResource(R.string.settings_reset))
+        ResetSection(onReset = { confirmReset = true })
+    }
+
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text(stringResource(R.string.settings_reset_title)) },
+            text = { Text(stringResource(R.string.settings_reset_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReset = false
+                    viewModel.resetApp()
+                }) {
+                    Text(stringResource(R.string.settings_reset_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmReset = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 }
 
 @Composable
 private fun SectionTitle(text: String) {
     Text(text = text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+}
+
+/**
+ * The "reset app" action — a red card that explains the wipe and a button that
+ * opens the confirmation. Styled like [CrashReportCard] on purpose: it is
+ * destructive and should read that way.
+ */
+@Composable
+private fun ResetSection(onReset: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = stringResource(R.string.settings_reset_explain),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(
+                onClick = onReset,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+                modifier = Modifier.align(Alignment.End),
+            ) {
+                Text(stringResource(R.string.settings_reset))
+            }
+        }
+    }
 }
 
 /**

@@ -158,6 +158,51 @@ class OutboundQueue(
         return summary.copy(morePending = true)
     }
 
+    /**
+     * Sends one already-queued job RIGHT NOW, bypassing the drain and the
+     * send-once guard.
+     *
+     * A deliberate, manual action from the activity log for a message that is
+     * stuck or failed — the agent has decided it should go out despite send-once.
+     * It marks the job and reports the outcome through the same result sink a
+     * drain uses, so the activity-log row updates too. Reuses the job's captured
+     * `senderId`, exactly like [sendOne].
+     */
+    suspend fun forceSend(transactionCode: String): ForceSendResult {
+        val job = store.jobByTransactionCode(transactionCode) ?: return ForceSendResult.NoJob
+
+        store.markSending(job.id)
+        log.sending(job.transactionCode, job.phone, job.senderId)
+
+        return when (val outcome = gateway.sendSms(job.phone, job.message, job.senderId)) {
+            is SendOutcome.Sent -> {
+                log.sent(job.transactionCode, outcome.messageId)
+                store.markSent(job.id, outcome.messageId)
+                results.onSent(job.transactionCode, outcome.messageId)
+                ForceSendResult.Sent
+            }
+
+            is SendOutcome.Failed -> {
+                val reason = outcome.reason.description
+                log.failed(job.transactionCode, reason)
+                store.markFailed(job.id, reason)
+                results.onFailed(job.transactionCode, reason)
+                ForceSendResult.Failed(reason)
+            }
+        }
+    }
+
+    /**
+     * Cancels unsent jobs — deletes everything still PENDING or in-flight SENDING,
+     * returning how many were removed.
+     *
+     * The queue half of the agent's "clear pending": a cleared message must not
+     * still go out. Terminal (SENT/FAILED) jobs are left alone.
+     */
+    suspend fun cancelPending(): Int =
+        store.deleteByStatus(OutboundJobStatus.PENDING) +
+            store.deleteByStatus(OutboundJobStatus.SENDING)
+
     private suspend fun sendOne(job: OutboundJob): DrainSummary {
         // Send-once guard (2026-07-19, client directive — stop duplicate billing).
         // A job is attempted AT MOST once. The attempt is burned at claim time
@@ -298,4 +343,20 @@ interface OutboundLog {
         override fun sent(transactionCode: String, messageId: String) = Unit
         override fun failed(transactionCode: String, reason: String) = Unit
     }
+}
+
+/** Outcome of a manual [OutboundQueue.forceSend]. */
+sealed interface ForceSendResult {
+    /** The gateway accepted the message. */
+    data object Sent : ForceSendResult
+
+    /** The gateway refused it; [reason] is the agent-readable description. */
+    data class Failed(val reason: String) : ForceSendResult
+
+    /**
+     * No queued job exists for this transaction — a SILENT row, or one logged
+     * before it was ever enqueued. The caller decides whether to reconstruct the
+     * send from the activity record instead.
+     */
+    data object NoJob : ForceSendResult
 }

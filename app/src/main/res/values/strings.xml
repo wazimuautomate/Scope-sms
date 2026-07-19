@@ -127,6 +127,19 @@
     <string name="log_copy_phone">Copy phone number</string>
     <string name="log_copy_message">Copy full message</string>
     <string name="log_copied_field">Copied to clipboard</string>
+    <string name="log_menu">More</string>
+    <string name="log_force_send">Send now</string>
+    <string name="log_force_send_title">Send now?</string>
+    <string name="log_force_send_body">Send %1$d message(s) right now, straight to the gateway? Each one is charged.</string>
+    <string name="log_force_send_result">Sent %1$d, failed %2$d.</string>
+    <string name="log_clear_sent">Clear sent</string>
+    <string name="log_clear_pending">Clear pending</string>
+    <string name="log_clear_all">Clear all</string>
+    <string name="log_clear_title">Clear messages?</string>
+    <string name="log_clear_confirm">Clear</string>
+    <string name="log_clear_sent_body">Remove every sent message from this list? This can\'t be undone.</string>
+    <string name="log_clear_pending_body">Remove every still-sending message, and cancel it so it won\'t go out? This can\'t be undone.</string>
+    <string name="log_clear_all_body">Remove every message from this list, and cancel anything still unsent? This can\'t be undone.</string>
 
     <string name="match_matched">Matched a bundle</string>
     <string name="match_unmatched">No bundle at that price</string>
@@ -173,6 +186,13 @@
     <string name="settings_battery_ok">Scope SMS is allowed to run in the background.</string>
     <string name="settings_battery_bad">Your phone can close Scope SMS in the background. Payments would be missed.</string>
     <string name="settings_battery_fix">Allow background activity</string>
+
+    <!-- Reset -->
+    <string name="settings_reset">Reset app</string>
+    <string name="settings_reset_explain">Wipe everything and start fresh — prices, messages, activity, SIM choice, and your gateway details. Use this when things get messy.</string>
+    <string name="settings_reset_title">Reset the whole app?</string>
+    <string name="settings_reset_body">This erases everything on the app: prices, message templates, the activity log, any unsent messages, SIM choice, and your SMS gateway key and sender ID. The app will close and reopen as if newly installed. This cannot be undone.</string>
+    <string name="settings_reset_confirm">Erase everything</string>
 
     <string name="settings_about">About</string>
     <string name="settings_version">Version %1$s (build %2$d)</string>
