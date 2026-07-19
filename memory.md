@@ -37,10 +37,13 @@ broken code.
 can test it. Every remaining item needs a physical phone or an answer from the
 client.** Nothing is 🟡 because it was left half-finished.
 
-**In flight (2026-07-19): v1.3.1 / versionCode 9 prepared on branch
-`fix/queue-stuck-sending-samsung`, NOT released** — the "replies stuck on
-Sending…" fix below. Release deliberately gated on a real-device check first
-(validate on A16/A07/A06, then tag `v1.3.1`).
+**Released 2026-07-19: v1.3.1 / versionCode 9** (PR #19 → tag `v1.3.1`) — the
+"replies stuck on Sending…" fix below. Shipped **without** the planned
+on-device pre-check because the debug artifact was blocked by the account-wide
+Actions storage quota; the signed release APK bypasses that quota (Release
+asset), so we shipped and validate on the live A16/A07/A06 *after* the update.
+That post-release device check + the battery-optimization setting are the two
+open follow-ups.
 
 ---
 
@@ -100,9 +103,15 @@ taken):**
 - **Fastest field confirmation of the diagnosis:** when messages are stuck, have
   the client open the app foreground for ~1 min — `AppContainer.start` fires a
   drain whose `releaseStuckJobs` reclaims them. If they flip to Sent, confirmed.
-- Not device-verified yet. CI-green ≠ verified for a WorkManager/OEM behavior
-  change (CLAUDE.md testing expectations). Needs the A16/A07/A06 sideload check
-  before `v1.3.1` is tagged.
+- **Not device-verified.** CI-green (incl. instrumented smoke tests) ≠ verified
+  for a WorkManager/OEM behavior change (CLAUDE.md testing expectations). v1.3.1
+  shipped anyway (see the release note above for why: quota-blocked debug APK +
+  client losing money + additive, low-risk change). The A16/A07/A06 check is now
+  a **post-release** confirmation: after the client updates, fire a burst and
+  watch nothing sticks on "Sending…". If it still stalls, the periodic worker is
+  being deferred → the battery-optimization exemption is the next lever, and a
+  foreground-service/UIDT sender (the heavier option not taken this round) is the
+  escalation.
 
 ---
 
