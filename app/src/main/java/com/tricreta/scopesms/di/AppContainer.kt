@@ -17,6 +17,7 @@ import com.tricreta.scopesms.domain.templates.MessageTemplateRepository
 import com.tricreta.scopesms.domain.templates.TemplateCache
 import com.tricreta.scopesms.network.ScopeSmsGateway
 import com.tricreta.scopesms.update.AppUpdater
+import com.tricreta.scopesms.queue.OutboundLog
 import com.tricreta.scopesms.queue.OutboundQueue
 import com.tricreta.scopesms.queue.RoomOutboundJobStore
 import com.tricreta.scopesms.queue.SendJobWorker
@@ -143,7 +144,32 @@ class AppContainer(context: Context) {
             // never sees. Now it lands in the activity log, which is the one place
             // BUILD-PLAN Phase 8 says they look.
             results = activityLogSink,
+            // Field diagnosis: log every send attempt and its gateway reply so a
+            // "why didn't it send" can be answered from logcat (2026-07-19).
+            log = outboundLog,
         )
+    }
+
+    /**
+     * Writes the send path's events to logcat. Masks the phone; never touches the
+     * message body or API key (both sensitive — logcat is scooped up by bug
+     * reports). See [OutboundLog].
+     */
+    private val outboundLog: OutboundLog by lazy {
+        object : OutboundLog {
+            override fun sending(transactionCode: String, phone: String, senderId: String) {
+                Log.i(SEND_TAG, "Sending $transactionCode to ${maskPhone(phone)} as \"$senderId\"")
+            }
+
+            override fun sent(transactionCode: String, messageId: String) {
+                val id = if (messageId.isBlank()) "no id yet" else "id $messageId"
+                Log.i(SEND_TAG, "SENT $transactionCode ($id)")
+            }
+
+            override fun failed(transactionCode: String, reason: String) {
+                Log.w(SEND_TAG, "FAILED $transactionCode: $reason")
+            }
+        }
     }
 
     /** Adapts the activity log to the queue's port. */
@@ -309,6 +335,13 @@ class AppContainer(context: Context) {
 
         /** Keeps the shift from overflowing before `min` can cap it. */
         private const val POW_CAP = 16L
+
+        /** logcat tag for the outbound send path. */
+        private const val SEND_TAG = "ScopeSms/Send"
+
+        /** Last 3 digits only — enough to correlate in a log, never enough to identify. */
+        private fun maskPhone(phone: String): String =
+            if (phone.length <= 3) "***" else "***" + phone.takeLast(3)
 
         /**
          * Reaches the container from anywhere holding a `Context` — including a
