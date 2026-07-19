@@ -68,6 +68,14 @@ interface ActivityLogDao {
     @Query("DELETE FROM activity_log WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 
+    /** Clears every logged row of one status — the agent's "clear all sent / pending". */
+    @Query("DELETE FROM activity_log WHERE notify_status = :status")
+    suspend fun deleteByStatus(status: String)
+
+    /** Clears the entire log. */
+    @Query("DELETE FROM activity_log")
+    suspend fun deleteAll()
+
     // --- Log list -----------------------------------------------------------
 
     /** Newest first — the agent's last few minutes are what they came to see. */

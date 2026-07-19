@@ -215,6 +215,83 @@ class OutboundQueueRetryTest {
         assertThat(summary.processed).isEqualTo(3)
     }
 
+    // --- Force send (manual, bypasses the queue and send-once) --------------
+
+    @Test
+    fun `forceSend sends a queued job immediately and marks it sent`() = runTest {
+        val store = FakeOutboundJobStore()
+        val queue = queueOf(store, Responds { accepted() })
+        enqueueOne(queue)
+
+        val result = queue.forceSend("TX00000001")
+
+        assertThat(result).isEqualTo(ForceSendResult.Sent)
+        assertThat(store.allJobs().single().status).isEqualTo(OutboundJobStatus.SENT)
+    }
+
+    @Test
+    fun `forceSend re-sends a failed job, bypassing the send-once guard`() = runTest {
+        // A message the queue gave up on can still be pushed by hand.
+        val store = FakeOutboundJobStore()
+        val attempts = AtomicInteger(0)
+        val queue = queueOf(
+            store,
+            Responds { if (attempts.incrementAndGet() == 1) errorResponse(500) else accepted() },
+        )
+        enqueueOne(queue)
+        queue.drain() // first attempt fails terminally under send-once
+        assertThat(store.allJobs().single().status).isEqualTo(OutboundJobStatus.FAILED)
+
+        val result = queue.forceSend("TX00000001")
+
+        assertThat(result).isEqualTo(ForceSendResult.Sent)
+        assertThat(store.allJobs().single().status).isEqualTo(OutboundJobStatus.SENT)
+        assertThat(attempts.get()).isEqualTo(2) // drain once + forceSend once
+    }
+
+    @Test
+    fun `forceSend returns NoJob when nothing is queued for that transaction`() = runTest {
+        val store = FakeOutboundJobStore()
+        val queue = queueOf(store, Responds { accepted() })
+
+        assertThat(queue.forceSend("TX-UNKNOWN")).isEqualTo(ForceSendResult.NoJob)
+    }
+
+    @Test
+    fun `forceSend reports the gateway's reason on failure`() = runTest {
+        val store = FakeOutboundJobStore()
+        val queue = queueOf(
+            store,
+            Responds { errorResponse(403, """{"message":"Sender ID not registered"}""") },
+        )
+        enqueueOne(queue)
+
+        val result = queue.forceSend("TX00000001")
+
+        assertThat(result).isInstanceOf(ForceSendResult.Failed::class.java)
+        assertThat((result as ForceSendResult.Failed).reason).contains("Sender ID not registered")
+        assertThat(store.allJobs().single().status).isEqualTo(OutboundJobStatus.FAILED)
+    }
+
+    @Test
+    fun `cancelPending deletes pending and sending jobs but keeps terminal ones`() = runTest {
+        val store = FakeOutboundJobStore()
+        val queue = queueOf(store, Responds { accepted() })
+        // One SENT (drained), one left PENDING, one stuck SENDING.
+        enqueueOne(queue, code = "TX-SENT", phone = "254700000001")
+        queue.drain()
+        enqueueOne(queue, code = "TX-PENDING", phone = "254700000002")
+        enqueueOne(queue, code = "TX-SENDING", phone = "254700000003")
+        store.markSending(store.jobByTransactionCode("TX-SENDING")!!.id)
+
+        val cancelled = queue.cancelPending()
+
+        assertThat(cancelled).isEqualTo(2)
+        val remaining = store.allJobs()
+        assertThat(remaining.map { it.transactionCode }).containsExactly("TX-SENT")
+        assertThat(remaining.single().status).isEqualTo(OutboundJobStatus.SENT)
+    }
+
     private suspend fun enqueueOne(
         queue: OutboundQueue,
         code: String = "TX00000001",

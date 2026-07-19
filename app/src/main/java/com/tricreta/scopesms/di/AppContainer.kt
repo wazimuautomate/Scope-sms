@@ -9,6 +9,7 @@ import com.tricreta.scopesms.data.log.ActivityLogRepository
 import com.tricreta.scopesms.data.rules.RoomPricingRuleRepository
 import com.tricreta.scopesms.data.settings.GatewayCredentialsStore
 import com.tricreta.scopesms.data.settings.SettingsRepository
+import com.tricreta.scopesms.data.system.AppReset
 import com.tricreta.scopesms.data.system.BatteryOptimizationManager
 import com.tricreta.scopesms.data.templates.RoomMessageTemplateRepository
 import com.tricreta.scopesms.domain.rules.PricingRuleRepository
@@ -88,6 +89,9 @@ class AppContainer(context: Context) {
     val batteryOptimization: BatteryOptimizationManager by lazy {
         BatteryOptimizationManager(appContext)
     }
+
+    /** The "reset everything" action for Settings. See [AppReset]. */
+    val appReset: AppReset by lazy { AppReset(appContext) }
 
     // ---- Phases 3/4/5b/8: the one Room database ----------------------------
 

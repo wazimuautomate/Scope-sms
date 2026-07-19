@@ -230,6 +230,18 @@ class SettingsViewModel(
     }
 
     /**
+     * Wipes the app back to a first-install state and restarts it — the agent's
+     * "things got messy, start over" button. See
+     * [com.tricreta.scopesms.data.system.AppReset]. The scary confirmation is in
+     * the UI; by the time this runs the agent has agreed to lose everything.
+     */
+    fun resetApp() {
+        // On the app scope, not viewModelScope: the wipe kills the process, which
+        // must not race this ViewModel's own teardown.
+        container.applicationScope.launch { container.appReset.wipeAndRestart() }
+    }
+
+    /**
      * Sends a real SMS through the real gateway to [phone].
      *
      * Deliberately not a mock or a dry-run. The failures this exists to catch —

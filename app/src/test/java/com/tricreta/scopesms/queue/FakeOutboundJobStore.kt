@@ -78,6 +78,12 @@ class FakeOutboundJobStore : OutboundJobStore {
     override suspend fun jobByTransactionCode(transactionCode: String): OutboundJob? =
         mutex.withLock { jobs.values.firstOrNull { it.transactionCode == transactionCode } }
 
+    override suspend fun deleteByStatus(status: OutboundJobStatus): Int = mutex.withLock {
+        val ids = jobs.values.filter { it.status == status }.map { it.id }
+        ids.forEach { jobs.remove(it) }
+        ids.size
+    }
+
     suspend fun allJobs(): List<OutboundJob> = mutex.withLock { jobs.values.toList() }
 
     private suspend fun update(id: Long, transform: (OutboundJob) -> OutboundJob) {

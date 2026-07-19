@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,14 +79,30 @@ fun ActivityLogScreen(
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf<ClearScope?>(null) }
+    var confirmForceSend by remember { mutableStateOf(false) }
+
+    // The result of a force-send, shown once as a toast.
+    val forceSendResult by viewModel.forceSendResult.collectAsStateWithLifecycle()
+    forceSendResult?.let { result ->
+        LaunchedEffect(result) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.log_force_send_result, result.sent, result.failed),
+                Toast.LENGTH_LONG,
+            ).show()
+            viewModel.clearForceSendResult()
+        }
+    }
 
     Column(modifier.fillMaxSize()) {
-        // Contextual bar, shown only while rows are selected: select all, copy the
-        // selected rows to the clipboard, or delete them.
+        // Contextual bar while rows are selected (force send / copy / delete);
+        // otherwise the title row with the bulk-clear menu.
         if (selectionMode) {
             SelectionBar(
                 count = selectedIds.size,
                 onSelectAll = viewModel::selectAll,
+                onForceSend = { confirmForceSend = true },
                 onCopy = {
                     val text = viewModel.buildCopyText()
                     if (text.isNotBlank()) {
@@ -101,6 +118,8 @@ fun ActivityLogScreen(
                 onDelete = { confirmDelete = true },
                 onClose = viewModel::clearSelection,
             )
+        } else {
+            LogHeader(onClear = { confirmClear = it })
         }
 
         OutlinedTextField(
@@ -178,6 +197,7 @@ fun ActivityLogScreen(
                     selected = record.id in selectedIds,
                     onClick = { if (selectionMode) viewModel.toggleSelection(record.id) },
                     onLongClick = { viewModel.toggleSelection(record.id) },
+                    onForceSend = { viewModel.forceSendOne(record) },
                 )
             }
         }
@@ -203,13 +223,109 @@ fun ActivityLogScreen(
             },
         )
     }
+
+    confirmClear?.let { scope ->
+        AlertDialog(
+            onDismissRequest = { confirmClear = null },
+            title = { Text(stringResource(R.string.log_clear_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        when (scope) {
+                            ClearScope.SENT -> R.string.log_clear_sent_body
+                            ClearScope.PENDING -> R.string.log_clear_pending_body
+                            ClearScope.ALL -> R.string.log_clear_all_body
+                        },
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    when (scope) {
+                        ClearScope.SENT -> viewModel.clearSent()
+                        ClearScope.PENDING -> viewModel.clearPending()
+                        ClearScope.ALL -> viewModel.clearAll()
+                    }
+                    confirmClear = null
+                }) {
+                    Text(stringResource(R.string.log_clear_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (confirmForceSend) {
+        AlertDialog(
+            onDismissRequest = { confirmForceSend = false },
+            title = { Text(stringResource(R.string.log_force_send_title)) },
+            text = { Text(stringResource(R.string.log_force_send_body, selectedIds.size)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.forceSendSelected()
+                    confirmForceSend = false
+                }) {
+                    Text(stringResource(R.string.log_force_send))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmForceSend = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
 }
+
+/** The log's title row and the bulk-clear overflow menu (shown when not selecting). */
+@Composable
+private fun LogHeader(onClear: (ClearScope) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.nav_log),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
+        var expanded by remember { mutableStateOf(false) }
+        Box {
+            IconButton(onClick = { expanded = true }) {
+                Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.log_menu))
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.log_clear_sent)) },
+                    onClick = { expanded = false; onClear(ClearScope.SENT) },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.log_clear_pending)) },
+                    onClick = { expanded = false; onClear(ClearScope.PENDING) },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.log_clear_all)) },
+                    onClick = { expanded = false; onClear(ClearScope.ALL) },
+                )
+            }
+        }
+    }
+}
+
+/** Which rows a bulk-clear targets. */
+private enum class ClearScope { SENT, PENDING, ALL }
 
 /** The contextual action bar shown while log rows are selected. */
 @Composable
 private fun SelectionBar(
     count: Int,
     onSelectAll: () -> Unit,
+    onForceSend: () -> Unit,
     onCopy: () -> Unit,
     onDelete: () -> Unit,
     onClose: () -> Unit,
@@ -231,9 +347,29 @@ private fun SelectionBar(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onSelectAll) { Text(stringResource(R.string.log_select_all)) }
-            TextButton(onClick = onCopy) { Text(stringResource(R.string.log_copy)) }
-            TextButton(onClick = onDelete) { Text(stringResource(R.string.log_delete)) }
+            // Force send is the headline action, kept visible; the rest go in an
+            // overflow so the bar never runs off the edge on a narrow screen.
+            TextButton(onClick = onForceSend) { Text(stringResource(R.string.log_force_send)) }
+            var expanded by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { expanded = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.log_menu))
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.log_select_all)) },
+                        onClick = { expanded = false; onSelectAll() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.log_copy)) },
+                        onClick = { expanded = false; onCopy() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.log_delete)) },
+                        onClick = { expanded = false; onDelete() },
+                    )
+                }
+            }
         }
     }
 }
@@ -245,6 +381,7 @@ private fun LogRow(
     selected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onForceSend: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -302,6 +439,12 @@ private fun LogRow(
                             )
                         }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.log_force_send)) },
+                                // SILENT rows have no rendered body to send.
+                                enabled = record.replyBody != null,
+                                onClick = { menuExpanded = false; onForceSend() },
+                            )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.log_copy_code)) },
                                 onClick = { menuExpanded = false; copy(record.transactionCode) },

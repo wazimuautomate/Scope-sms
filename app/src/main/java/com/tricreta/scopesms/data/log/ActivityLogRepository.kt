@@ -117,6 +117,12 @@ class ActivityLogRepository(
         if (ids.isNotEmpty()) dao.deleteByIds(ids.toList())
     }
 
+    /** Clears every logged row of one status — the agent's bulk "clear sent / pending". */
+    suspend fun clearByStatus(status: NotifyStatus) = dao.deleteByStatus(status.name)
+
+    /** Clears the whole log. */
+    suspend fun clearAll() = dao.deleteAll()
+
     /** Marks a queued reply as accepted by the gateway. */
     suspend fun markSent(transactionCode: String, gatewayMessageId: String?) {
         dao.updateSendResult(
