@@ -4,6 +4,44 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-19 — v1.3.2 send-once (stop token-bleed) + v1.4.0 log controls & reset
+
+Same day as the stuck-Sending fix below, two more releases the client asked for.
+
+### v1.3.2 (versionCode 10) — send exactly once + send-path logging
+Client: the 5-attempt retry was **re-sending and re-billing** the same SMS.
+Fix (`fix/send-once-error-logging`, PR #21): `DEFAULT_MAX_ATTEMPTS` 5 → 1 with
+the guard moved **before** claiming, so a job whose one attempt is already spent
+— including a crash that left it `SENDING` and `releaseStuckJobs` returned to
+`PENDING` — is **failed, never re-sent**. That closes the crash-recovery
+double-send too. Every failure is now terminal, so it always shows in the
+activity log with the gateway's reason (retryable failures used to stay silent
+on "Sending…"). Added an injected `OutboundLog` port (logcat in production, no-op
+in tests so the queue stays JVM-testable): logs each send, its reply id, and any
+failure reason; phone masked, never the body or key. Offline-at-arrival is
+unchanged (the `CONNECTED` constraint still holds an unclaimed job until data
+returns). Rewrote the retry-era queue tests to the send-once contract. Shipped
+(tag `v1.3.2`, release green, `update.json` versionCode 10).
+
+### v1.4.0 (versionCode 11) — clear, force-send, reset
+Branch `feature/log-controls-and-reset`, PR #22. Three controls for "when things
+get messy":
+- **Bulk clear** (activity-log ⋮ menu): Clear sent / pending / all. Clearing
+  *pending* also cancels the unsent jobs (`OutboundQueue.cancelPending` deletes
+  `PENDING`/`SENDING`) so a cleared reply can't still go out.
+- **Force send** (selection bar + per-row): `OutboundQueue.forceSend(txnCode)`
+  sends now, bypassing the queue AND send-once; marks job + log terminal; reuses
+  the job's captured `senderId`. No-job rows (logged before enqueue) reconstruct
+  from the record + current sender ID. Sequential; bulk is behind a confirm
+  (each is billed); result shown as a toast.
+- **Reset app** (Settings, red card + scary confirm): `AppReset` deletes the
+  Keystore key, cancels all work, then `clearApplicationUserData()` and arms an
+  `AlarmManager` relaunch → next launch re-runs onboarding.
+- Tests for `forceSend` + `cancelPending`. No Room schema change (new methods are
+  queries). Shipped (tag `v1.4.0`, release green).
+
+---
+
 ## 2026-07-19 — Field bug: replies stuck on "Sending…" on the client's Samsungs
 
 Branch `fix/queue-stuck-sending-samsung`. Client report: real auto-replies
