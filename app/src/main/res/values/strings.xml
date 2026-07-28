@@ -107,6 +107,17 @@
     <string name="tpl_err_unknown">Not a real variable: %1$s. Check the spelling — it will be sent to the customer exactly as typed.</string>
     <string name="tpl_err_disallowed">%1$s has no value in this message and will be left blank.</string>
 
+    <string name="tpl_tone_title">This may sound promotional</string>
+    <string name="tpl_tone_explainer">Your sender ID is registered as transactional. Safaricom can block messages that sound like an advert instead of a receipt.</string>
+    <string name="tpl_tone_issue">%1$s — %2$s</string>
+    <string name="tpl_tone_urgency">Urgency language like this reads as marketing copy, not a receipt. State what happened, not why they should hurry.</string>
+    <string name="tpl_tone_cta">This pushes toward a new purchase, which reads as an advert. Say what already happened instead.</string>
+    <string name="tpl_tone_discount">Discount or sale language is a strong promotional signal. State a price plainly if you need to, without the sale framing.</string>
+    <string name="tpl_tone_prize">Prize or giveaway language reads as a marketing hook, not a transaction record.</string>
+    <string name="tpl_tone_shouting">Writing in ALL CAPS reads as shouting, an advertising tell. Use normal sentence case.</string>
+    <string name="tpl_tone_punctuation">Repeated \"!\" or \"?\" reads as promotional excitement. One is plenty, or none.</string>
+    <string name="tpl_tone_emoji">Several emoji read as casual/promotional rather than a transaction notice — and each one risks doubling this message\'s SMS cost.</string>
+
     <!-- Activity log -->
     <string name="log_search">Search name, number or code</string>
     <string name="log_clear_filters">Clear filters</string>
@@ -164,6 +175,8 @@
 
     <string name="settings_gateway">SMS gateway</string>
     <string name="settings_gateway_help">Replies are sent through your SCOPE SMS account, not from this phone\'s SIM. Your API key is stored encrypted on this device only.</string>
+    <string name="settings_gateway_get_key">Don\'t have an API key yet? Get one at</string>
+    <string name="settings_gateway_balance">Make sure your BlazeTech SMS account has enough SMS balance/tokens — replies will fail to send if it runs out.</string>
     <string name="settings_gateway_saved">Saved: key %1$s · sender ID %2$s</string>
     <string name="settings_gateway_clear">Remove</string>
     <string name="settings_gateway_save_failed">This phone could not store the key securely. Try again, and if it keeps failing, tell your developer.</string>

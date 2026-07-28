@@ -33,8 +33,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -449,12 +455,47 @@ private fun SimOption(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Points a new agent at where BlazeTech SMS actually issues an API key.
+ * Without this, "API key" is a field with nothing to type into it and no
+ * indication of where one comes from.
+ */
+@Composable
+private fun ApiKeySignupHint() {
+    val url = "https://sms.blazetechscope.com/apikeys"
+    val prefix = stringResource(R.string.settings_gateway_get_key)
+    val text = buildAnnotatedString {
+        append(prefix)
+        append(" ")
+        withLink(
+            LinkAnnotation.Url(
+                url = url,
+                styles = TextLinkStyles(
+                    style = SpanStyle(
+                        color = MaterialTheme.colorScheme.primary,
+                        textDecoration = TextDecoration.Underline,
+                    ),
+                ),
+            ),
+        ) {
+            append(url)
+        }
+    }
+    Text(text = text, style = MaterialTheme.typography.bodySmall)
+}
+
 @Composable
 private fun GatewaySection(state: SettingsUiState, viewModel: SettingsViewModel) {
     var testPhone by rememberSaveable { mutableStateOf("") }
 
     Text(
         text = stringResource(R.string.settings_gateway_help),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    ApiKeySignupHint()
+    Text(
+        text = stringResource(R.string.settings_gateway_balance),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

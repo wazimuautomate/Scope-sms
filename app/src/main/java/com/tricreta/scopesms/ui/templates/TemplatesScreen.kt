@@ -1,5 +1,6 @@
 package com.tricreta.scopesms.ui.templates
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -29,12 +30,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tricreta.scopesms.R
 import com.tricreta.scopesms.domain.templates.TemplateType
 import com.tricreta.scopesms.domain.templates.TemplateVariable
+import com.tricreta.scopesms.domain.templates.ToneIssueCategory
 
 /**
  * The two reply bodies, each with its own variable chips and live preview.
@@ -162,6 +165,7 @@ fun TemplatesContent(
             }
 
             ValidationMessages(editor)
+            ToneWarningCard(editor)
             SegmentCounter(editor)
             PreviewCard(editor)
 
@@ -226,6 +230,62 @@ private fun ValidationMessages(editor: TemplateEditorState) {
             }
         }
     }
+}
+
+/**
+ * Warns when the rendered message reads as promotional rather than
+ * transactional — the sender ID is registered as transactional with
+ * Safaricom, and a message that sounds like an advert risks being blocked at
+ * the carrier, silently, with nothing in the activity log to explain why.
+ *
+ * Advisory only, unlike [ValidationMessages]: a bordered card in the app's
+ * softer "flag, don't alarm" style (see the 2026-07-18 failure-styling
+ * change — same reasoning applies here, more so, since this is a heuristic
+ * guess rather than a definite error), not the filled `errorContainer` used
+ * for a real validation failure. It never affects [TemplateEditorState.canSave].
+ */
+@Composable
+private fun ToneWarningCard(editor: TemplateEditorState) {
+    val result = editor.toneCheck
+    if (!result.soundsPromotional) return
+
+    Card(
+        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.tertiary),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(R.string.tpl_tone_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+            Text(
+                text = stringResource(R.string.tpl_tone_explainer),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            result.issues.forEach { issue ->
+                Text(
+                    text = stringResource(
+                        R.string.tpl_tone_issue,
+                        issue.matchedText,
+                        stringResource(adviceRes(issue.category)),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+private fun adviceRes(category: ToneIssueCategory): Int = when (category) {
+    ToneIssueCategory.URGENCY -> R.string.tpl_tone_urgency
+    ToneIssueCategory.CALL_TO_ACTION -> R.string.tpl_tone_cta
+    ToneIssueCategory.DISCOUNT_FRAMING -> R.string.tpl_tone_discount
+    ToneIssueCategory.PRIZE_OR_INCENTIVE -> R.string.tpl_tone_prize
+    ToneIssueCategory.SHOUTING -> R.string.tpl_tone_shouting
+    ToneIssueCategory.EXCESSIVE_PUNCTUATION -> R.string.tpl_tone_punctuation
+    ToneIssueCategory.EMOJI -> R.string.tpl_tone_emoji
 }
 
 /**
