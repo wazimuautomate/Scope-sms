@@ -149,6 +149,52 @@ choice is effectively **one-time** — not cleanly reversible after the fact.
 Not decided; flagged so whoever is at the keyboard when the client reaches
 Play Console's signing step knows there's a real choice, not a formality.
 
+### 🔴 Repo was made PUBLIC on 2026-07-28 to route around the billing lock — confirm current visibility before trusting private-repo assumptions
+Blocker 1 above froze all CI, including on `main`. Client's own fix: flip the
+repo public (public repos get free Actions minutes, sidestepping the billing
+gate entirely) just long enough to get PR #24 green and the AAB built, then
+flip back to private. **Checked before agreeing this was safe**: full history
+(100 commits) scanned for ever-committed keystores/`.env`/`google-services.json`
+and for real GitHub/Google token or private-key signatures — none found; the
+`.gitignore` has excluded secret-shaped files from the start (see its own
+header comment) and it held. So the exposure window itself was clean.
+
+**What this does NOT undo:** re-privatizing afterward does not retroactively
+protect anything that leaked *during* the public window — secret-scanning
+bots crawl newly-public repos within minutes. Nothing was found, so this is
+moot for this specific window, but the general point stands for any future
+"flip public momentarily" move: verify *before*, because there's no verifying
+*after* that matters.
+
+**Also surfaced while switching:** `gh`'s active-account flip (the
+2026-07-16 gotcha below) recurred **twice** more this session, independent of
+the visibility change — `gh auth switch --user wazimuautomate` fixed it both
+times, same as before. And PR #24's `gh pr merge` required an explicit
+"merge it right now" from the client — Claude Code's own auto-mode permission
+classifier blocks a merge-to-main as a shared-state-affecting action
+regardless of what CLAUDE.md's workflow section says about when a session
+should merge; it needs the client's explicit in-the-moment go-ahead every
+time, not just a standing policy in a doc.
+
+**Whoever is here next: confirm `gh repo view wazimuautomate/Scope-sms --json
+visibility` before assuming the repo is private again.** If it's still
+public, the `UPDATE_READ_TOKEN` scheme (built specifically because the repo
+*was* private — see the 2026-07-16 entry) is running on a now-unnecessary
+token rather than a broken one, which is harmless but worth noting, not
+"working as designed."
+
+### 🟢 First Play AAB built successfully — `scope-sms-1.4.0-vc11.aab`
+PR #24 merged (`3b740e6`), `playstore-bundle.yml` dispatched against `main`,
+green in 4m17s including the jarsigner verify step. Confirms the whole
+premise (Gradle's shared `signingConfigs.release` between `assembleRelease`
+and `bundleRelease`) held with no surprises. This is **versionCode 11 /
+versionName 1.4.0** — the same version already shipped to GitHub direct-
+install — so the first Play upload and the current GitHub release describe
+the same code, just two distribution channels. Blocker 2 (the in-app
+self-updater vs Play's own update-mechanism policy, above) is **still
+unresolved** — this AAB was built to unblock testing/upload mechanics, not as
+a statement that it's policy-clean for production submission.
+
 ### Still needs the client directly — none of this is CI- or session-doable
 Play Console developer account ($25 one-time fee + Google identity
 verification, which can take hours to ~14 days for a new account), the app

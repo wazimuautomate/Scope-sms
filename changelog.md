@@ -46,6 +46,15 @@ submission, most likely a Play-specific build variant that drops the
 in-app updater and `REQUEST_INSTALL_PACKAGES`, keeping both intact only for
 the GitHub-direct build.
 
+### Resolved this session: PR #24 merged, first AAB built
+Client flipped the repo public to route around the billing lock (checked repo
+history for anything secret-shaped first — clean, see `memory.md`). CI went
+green, client explicitly approved the merge, `playstore-bundle.yml` ran
+against `main` and produced `scope-sms-1.4.0-vc11.aab` (signature verified).
+Blocker 2 (self-updater vs Play policy) is still unresolved — this AAB proves
+the build mechanics, not that the app is Play-policy-clean yet. **Reminder:
+confirm the repo has actually been flipped back to private.**
+
 ### Still needs the client (Play Console — none of this is CI-doable)
 Developer account + $25 fee + identity verification (can take hours–days),
 app listing, privacy policy URL, Data Safety form, content rating
