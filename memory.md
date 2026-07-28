@@ -149,6 +149,81 @@ choice is effectively **one-time** — not cleanly reversible after the fact.
 Not decided; flagged so whoever is at the keyboard when the client reaches
 Play Console's signing step knows there's a real choice, not a formality.
 
+### 🔴 Repo was made PUBLIC on 2026-07-28 to route around the billing lock — confirm current visibility before trusting private-repo assumptions
+Blocker 1 above froze all CI, including on `main`. Client's own fix: flip the
+repo public (public repos get free Actions minutes, sidestepping the billing
+gate entirely) just long enough to get PR #24 green and the AAB built, then
+flip back to private. **Checked before agreeing this was safe**: full history
+(100 commits) scanned for ever-committed keystores/`.env`/`google-services.json`
+and for real GitHub/Google token or private-key signatures — none found; the
+`.gitignore` has excluded secret-shaped files from the start (see its own
+header comment) and it held. So the exposure window itself was clean.
+
+**What this does NOT undo:** re-privatizing afterward does not retroactively
+protect anything that leaked *during* the public window — secret-scanning
+bots crawl newly-public repos within minutes. Nothing was found, so this is
+moot for this specific window, but the general point stands for any future
+"flip public momentarily" move: verify *before*, because there's no verifying
+*after* that matters.
+
+**Also surfaced while switching:** `gh`'s active-account flip (the
+2026-07-16 gotcha below) recurred **twice** more this session, independent of
+the visibility change — `gh auth switch --user wazimuautomate` fixed it both
+times, same as before. And PR #24's `gh pr merge` required an explicit
+"merge it right now" from the client — Claude Code's own auto-mode permission
+classifier blocks a merge-to-main as a shared-state-affecting action
+regardless of what CLAUDE.md's workflow section says about when a session
+should merge; it needs the client's explicit in-the-moment go-ahead every
+time, not just a standing policy in a doc.
+
+**Whoever is here next: confirm `gh repo view wazimuautomate/Scope-sms --json
+visibility` before assuming the repo is private again.** If it's still
+public, the `UPDATE_READ_TOKEN` scheme (built specifically because the repo
+*was* private — see the 2026-07-16 entry) is running on a now-unnecessary
+token rather than a broken one, which is harmless but worth noting, not
+"working as designed."
+
+### 🟢 First Play AAB built successfully — `scope-sms-1.4.0-vc11.aab`
+PR #24 merged (`3b740e6`), `playstore-bundle.yml` dispatched against `main`,
+green in 4m17s including the jarsigner verify step. Confirms the whole
+premise (Gradle's shared `signingConfigs.release` between `assembleRelease`
+and `bundleRelease`) held with no surprises. This is **versionCode 11 /
+versionName 1.4.0** — the same version already shipped to GitHub direct-
+install — so the first Play upload and the current GitHub release describe
+the same code, just two distribution channels. Blocker 2 (the in-app
+self-updater vs Play's own update-mechanism policy, above) is **still
+unresolved** — this AAB was built to unblock testing/upload mechanics, not as
+a statement that it's policy-clean for production submission.
+
+### 🔴 DECIDED 2026-07-28: Play Store is abandoned, not paused — back to GitHub-only, `playstore-bundle.yml` deleted
+After being told about both blockers above (the SMS-permission policy risk
+*and* the self-updater-vs-Play-policy risk), the client concluded Play would
+definitely reject the app and called it off: **"we don't go that way, we
+just go the normal way he used to do it... since it was even his personal
+app."** That last detail matters for anyone reconsidering this later — this
+was never a multi-agent, public-distribution product; it's the client's own
+tool for their own single Bingwa Sokoni operation, which is exactly the
+profile Play's SMS-permission policy is least forgiving of (no case for
+"default SMS handler," no broad user base to justify a declaration-form
+exception).
+
+**This confirms CLAUDE.md constraint 8's original call was right** — Play
+was ruled out for this exact reason before this session ever started
+building toward it. Don't re-litigate "should we try Play Store" without new
+information (e.g. the client independently getting Google's sign-off, which
+didn't happen here — see blocker 1 above, "already cleared" turned out to
+mean the SMS-permission question specifically, not the whole submission).
+
+`playstore-bundle.yml` deleted (not left dormant) — this project's own
+convention is to delete abandoned code rather than keep it "just in case"
+(see `Money`, old `network/UpdateChecker`, both fully removed when
+superseded). PR #24's merge commit and this whole saga stay in git history
+if it's ever genuinely reconsidered; re-adding the workflow is a ~110-line
+file, not a lost decision. The GitHub direct-install channel
+(`release.yml`, `update.json`, the in-app updater) is completely unaffected
+and remains the only distribution channel, per the client's explicit "do
+not remove it."
+
 ### Still needs the client directly — none of this is CI- or session-doable
 Play Console developer account ($25 one-time fee + Google identity
 verification, which can take hours to ~14 days for a new account), the app
