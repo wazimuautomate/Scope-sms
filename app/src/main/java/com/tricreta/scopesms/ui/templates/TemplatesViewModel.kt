@@ -10,12 +10,14 @@ import com.tricreta.scopesms.di.AppContainer
 import com.tricreta.scopesms.domain.money.KshAmount
 import com.tricreta.scopesms.domain.rules.PricingRule
 import com.tricreta.scopesms.domain.templates.DefaultTemplates
+import com.tricreta.scopesms.domain.templates.PromotionalToneChecker
 import com.tricreta.scopesms.domain.templates.SmsLength
 import com.tricreta.scopesms.domain.templates.SmsSegments
 import com.tricreta.scopesms.domain.templates.TemplateEngine
 import com.tricreta.scopesms.domain.templates.TemplateType
 import com.tricreta.scopesms.domain.templates.TemplateValidation
 import com.tricreta.scopesms.domain.templates.TemplateVariable
+import com.tricreta.scopesms.domain.templates.ToneCheckResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +34,7 @@ data class TemplateEditorState(
     val preview: String = "",
     val length: SmsLength = SmsSegments.measure(""),
     val validation: TemplateValidation = TemplateValidation(emptyList(), emptyList()),
+    val toneCheck: ToneCheckResult = ToneCheckResult.CLEAN,
     val isDefault: Boolean = true,
 ) {
     val hasUnsavedChanges: Boolean get() = body != savedBody
@@ -89,14 +92,21 @@ class TemplatesViewModel(
         val stored = templates?.forType(type)
         val savedBody = stored?.body ?: DefaultTemplates.bodyFor(type)
         val body = edits[type] ?: savedBody
+        val rendered = TemplateEngine.render(body, sampleValues(type, activeRules))
 
         return TemplateEditorState(
             type = type,
             body = body,
             savedBody = savedBody,
-            preview = TemplateEngine.render(body, sampleValues(type, activeRules)),
-            length = SmsSegments.measure(TemplateEngine.render(body, sampleValues(type, activeRules))),
+            preview = rendered,
+            length = SmsSegments.measure(rendered),
             validation = TemplateEngine.validate(body, type),
+            // Checked against the *rendered* preview, not the raw body: a real
+            // bundle description substituted via {bundle_list}/{package} can
+            // itself be promotional-sounding even when the template text
+            // around it isn't, and the rendered preview is what Safaricom's
+            // filter actually sees.
+            toneCheck = PromotionalToneChecker.check(rendered),
             isDefault = stored?.isDefault ?: true,
         )
     }
