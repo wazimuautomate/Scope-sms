@@ -1,9 +1,9 @@
 {
-  "versionCode": 11,
-  "versionName": "1.4.0",
-  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/482394933",
-  "sha256": "3c83819b3454eba2c84931b50d18652dcf7d3327724117535140c3f7160043e9",
-  "releaseNotes": "v1.4.0 — clear (sent/pending/all), force-send, and full app reset",
+  "versionCode": 12,
+  "versionName": "1.5.0",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/492910511",
+  "sha256": "444d2ce8dfb7400a70e64ed31d3f0663b40e0449ada37eb34253f70cc49dacd0",
+  "releaseNotes": "v1.5.0: promotional-tone check for templates + gateway signup/balance hints",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
