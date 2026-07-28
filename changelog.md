@@ -4,6 +4,36 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-28 — v1.5.0: promotional-tone checker + gateway signup/balance hints
+
+Same session as the Play Store abandonment below. Branch
+`feature/tone-checker-and-settings-hints` → PR #26, squash-merged, tagged
+`v1.5.0` (versionCode 12), release green, `update.json` on `main` confirmed
+updated — the client's in-app updater will offer this.
+
+### Promotional vs transactional tone check (client's field request)
+The registered sender ID is transactional with Safaricom/BlazeTech; a message
+that reads as promotional risks being silently blocked by the carrier's own
+filter, with no error the gateway client can see or log. New
+`domain/templates/PromotionalToneChecker` flags urgency language, sales
+calls-to-action, discount framing, prize/incentive language, ALL-CAPS
+shouting, repeated `!`/`?`, and multi-emoji runs — checked against the
+**rendered** template preview (catches promotional bundle descriptions
+substituted via `{bundle_list}`/`{package}`, not just the surrounding
+template text). Deliberately does not flag this app's own vocabulary
+("offer", "free", bare prices) since that's this app's single most common
+legitimate message. Shown as a live, advisory-only warning card in the
+Templates screen (never blocks saving — a heuristic will have false
+positives). Full design rationale and the false-positive test cases are in
+`memory.md`.
+
+### Settings: where to get an API key, and to keep enough balance
+A signup link to `https://sms.blazetechscope.com/apikeys` plus a reminder to
+keep enough SMS balance/tokens, next to the gateway credentials fields —
+client noted the API key field gave no indication of where a key comes from.
+
+---
+
 ## 2026-07-28 — Play Store push started; two blockers found, CI pipeline for Play added
 
 Client asked to take the app to Play Store production, with a signed AAB and
