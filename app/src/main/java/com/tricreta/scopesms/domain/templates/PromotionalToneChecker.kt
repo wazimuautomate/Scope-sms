@@ -107,6 +107,7 @@ object PromotionalToneChecker {
                 word.uppercase() !in CAPS_ALLOWLIST
         }
         .distinct()
+        .toList()
 
     /**
      * Two or more emoji anywhere in the body — a single friendly one is not
