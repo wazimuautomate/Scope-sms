@@ -48,6 +48,10 @@ open follow-ups.
 **Released 2026-07-19: v1.3.2 (vc 10) and v1.4.0 (vc 11)** — see the two 🔴/🟢
 notes just below.
 
+**Released 2026-07-28: v1.5.0 / versionCode 12** — promotional-tone checker +
+gateway signup/balance hints. See the dated section below the Play Store one.
+`update.json` on `main` confirmed reading versionCode 12 post-release.
+
 ---
 
 ## 🔴 Play Store push (2026-07-28) — started, two real blockers found before any AAB ships
@@ -234,6 +238,88 @@ rating questionnaire, and the **Permissions Declaration Form** for
 mechanism the client means by "already cleared with Google" — worth
 confirming which stage they've actually reached, since the form, a
 Google-side review, and final approval are three different milestones).
+
+---
+
+## 🟢 v1.5.0 (2026-07-28) — promotional-tone checker + gateway signup/balance hints
+
+Branch `feature/tone-checker-and-settings-hints` → PR #26, squash-merged to
+`main`. Shipped same session as the Play Store abandonment above. Tagged and
+released: `update.json` on `main` confirmed reading versionCode 12 /
+versionName 1.5.0 post-release.
+
+### Why: the registered sender ID is transactional, not promotional
+Client's ask, direct from the field: BlazeTech/Safaricom registers a sender
+ID under a category (transactional vs promotional), and a transactional ID
+that sends promotional-sounding content gets **silently blocked by the
+carrier's own content filter** — not a documented gateway error, not
+something `ScopeSmsGateway.interpret` can see or classify, not a
+`SendFailure` reason that ever reaches the activity log. By the time anyone
+would notice, a customer simply never got their reply and there's no trail
+explaining why. That asymmetry (real failure mode, zero visibility) is why
+this has to be caught in the editor before a template is ever saved, not
+diagnosed after the fact — the same category of reasoning as constraint 9's
+"no flow is done without its failure path handled," just for a failure path
+the gateway itself can never surface.
+
+### `domain/templates/PromotionalToneChecker` — heuristic, not ML, and deliberately narrow
+Runs live as the agent types (`TemplatesViewModel.editorFor`), against the
+**rendered preview** (not the raw body) — a promotional-sounding bundle
+description substituted via `{bundle_list}`/`{package}` is exactly what
+Safaricom's filter would see, and checking only the template text around it
+would miss real risk sitting in the price list. Free reuse: `editorFor` was
+already computing the rendered string twice (once for `preview`, once inside
+`length`) — now computed once and shared three ways.
+
+Flags: urgency language ("hurry", "limited time"...), sales calls-to-action
+("buy now", "click here"...), discount framing (word-based + a separate
+`\d+\s*%\s*off` numeric regex, since `%` isn't a word character and doesn't
+fit the `\b`-wrapped phrase matcher), prize/incentive language, ALL-CAPS
+shouting (4+ letter words, allowlisting real abbreviations this app's own
+messages use — SMS, PIN, KSH, MPESA...), repeated `!`/`?`, and 2+ emoji.
+
+**Deliberately does NOT flag this app's own core vocabulary** — "offer" (it's
+literally Safaricom's product name for bundles; `{data_offers}` etc. are
+existing template variables), "free" alone (bundles are routinely named
+"Free Minutes" or similar), or a bare price. A checker that flagged those
+would be wrong about this app's single most common legitimate message every
+time it ran. `PromotionalToneCheckerTest` locks this in explicitly (a bundle
+literally named "Free Minutes Bundle" and a real `{bundle_list}`-shaped
+price list are both asserted clean), not just the positive-detection cases.
+
+**Emoji detection walks Unicode code points, not a regex character-class
+range** — deliberately, after nearly repeating the exact class of bug in
+`TemplateEngine`'s `TOKEN_PATTERN` (Android's ICU regex engine disagreeing
+with the desktop JVM on a lone-brace pattern that 300 green CI tests never
+caught, see that entry below). A hand-rolled surrogate-pair range in a regex
+character class is precisely the kind of thing that bug class hides in — CI
+here is JVM-only, so a JVM/ICU divergence in a regex would again be invisible
+until a real Android device hit it. Sidestepped entirely by iterating
+`codePointAt`/`Character.charCount` instead of matching emoji with `Regex`.
+
+**Advisory only — never blocks saving.** `TemplateEditorState.canSave` is
+unchanged (`validation.isValid && ...`); the tone card is a separate,
+softer-styled warning (bordered, `colorScheme.tertiary`, same "flag don't
+alarm" convention as the 2026-07-18 failure-styling change, just a shade
+below even that since a heuristic guess is less certain than a real send
+failure). A false positive blocking a save the agent knows is fine would be
+worse than a dismissible card.
+
+**Caught by CI, not locally**: `shoutedWordsIn` initially returned a
+`Sequence<String>` where the signature promised `List<String>` —
+`Regex.findAll` is lazy, and `map`/`filter`/`distinct` chained on it stay
+lazy too. No local JDK this session to catch it before a push; fixed same PR
+once CI's `compileDebugKotlin` output named the exact line.
+
+### Settings: BlazeTech signup link + balance reminder
+`ApiKeySignupHint` (`ui/settings/SettingsScreen.kt`) — a `buildAnnotatedString`
++ `LinkAnnotation.Url` (Compose UI 1.11.x via the `2026.06.01` BOM; stable,
+not experimental at this version) pointing at
+`https://sms.blazetechscope.com/apikeys`, plus a plain-text reminder to keep
+enough SMS balance. Client's reasoning: the API key field had no indication
+of where a key actually comes from. URL kept as a Kotlin constant, not a
+`strings.xml` entry — not translatable prose, same treatment as other
+literal URLs/tokens in this codebase (`BuildConfig.UPDATE_MANIFEST_URL` etc.).
 
 ---
 
