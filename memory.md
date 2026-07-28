@@ -195,6 +195,35 @@ self-updater vs Play's own update-mechanism policy, above) is **still
 unresolved** — this AAB was built to unblock testing/upload mechanics, not as
 a statement that it's policy-clean for production submission.
 
+### 🔴 DECIDED 2026-07-28: Play Store is abandoned, not paused — back to GitHub-only, `playstore-bundle.yml` deleted
+After being told about both blockers above (the SMS-permission policy risk
+*and* the self-updater-vs-Play-policy risk), the client concluded Play would
+definitely reject the app and called it off: **"we don't go that way, we
+just go the normal way he used to do it... since it was even his personal
+app."** That last detail matters for anyone reconsidering this later — this
+was never a multi-agent, public-distribution product; it's the client's own
+tool for their own single Bingwa Sokoni operation, which is exactly the
+profile Play's SMS-permission policy is least forgiving of (no case for
+"default SMS handler," no broad user base to justify a declaration-form
+exception).
+
+**This confirms CLAUDE.md constraint 8's original call was right** — Play
+was ruled out for this exact reason before this session ever started
+building toward it. Don't re-litigate "should we try Play Store" without new
+information (e.g. the client independently getting Google's sign-off, which
+didn't happen here — see blocker 1 above, "already cleared" turned out to
+mean the SMS-permission question specifically, not the whole submission).
+
+`playstore-bundle.yml` deleted (not left dormant) — this project's own
+convention is to delete abandoned code rather than keep it "just in case"
+(see `Money`, old `network/UpdateChecker`, both fully removed when
+superseded). PR #24's merge commit and this whole saga stay in git history
+if it's ever genuinely reconsidered; re-adding the workflow is a ~110-line
+file, not a lost decision. The GitHub direct-install channel
+(`release.yml`, `update.json`, the in-app updater) is completely unaffected
+and remains the only distribution channel, per the client's explicit "do
+not remove it."
+
 ### Still needs the client directly — none of this is CI- or session-doable
 Play Console developer account ($25 one-time fee + Google identity
 verification, which can take hours to ~14 days for a new account), the app
