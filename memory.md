@@ -50,6 +50,118 @@ notes just below.
 
 ---
 
+## 🔴 Play Store push (2026-07-28) — started, two real blockers found before any AAB ships
+
+Client asked to take the app to Play Store production, with a signed AAB and
+"no issues of keys" on future updates, **while keeping the existing GitHub
+direct-install channel** (do not remove it). This directly revisits CLAUDE.md
+constraint 8's "Play Store is out of scope" call — client's answer when asked
+about the SMS-permission risk was **"already cleared with Google, go straight
+to production."** Taken at face value; not re-litigated below. What follows
+is everything found *while building toward it*, most of which the client had
+not seen yet when they asked for a 3-minute turnaround.
+
+### Built: `.github/workflows/playstore-bundle.yml` (PR #24, branch
+`feature/play-store-aab-bundle`, **NOT YET MERGED** — see blocker 1)
+`workflow_dispatch`-only, builds `./gradlew bundleRelease`, signed with the
+existing permanent `scope-sms` keystore reused as the Play Console **upload
+key** (same `ANDROID_*` GitHub Secrets `release.yml` already materialises —
+no new key generated, no new custody chain). Deliberately touches nothing in
+`release.yml`/`update.json`/the tag-triggered GitHub Release flow — this is a
+second, independent output, not a replacement. `bundleRelease` shares
+`buildTypes.release.signingConfig` with `assembleRelease` in
+`app/build.gradle.kts` already, so no Gradle changes were needed at all — the
+project's existing signing setup was already AAB-ready by construction.
+
+### 🔴🔴 Blocker 1 — GitHub Actions is billing-locked account-wide, since 2026-07-19
+Confirmed via `gh run view`: every job on every run — this PR's, and **`main`'s
+own last push 8 days ago** — fails in 2-3 seconds with *"recent account
+payments have failed or your spending limit needs to be increased. Please
+check the 'Billing & plans' section in your settings."* Not caused by this
+session; `main` was already broken before this session started. No local JDK
+in this session's environment either (`java -version` → not found), so there
+was **no way to verify anything**, CI or local.
+
+**This is materially worse than the 2026-07-18 artifact-storage-quota
+incident** (see that entry below) — that time, tests/lint/instrumented suites
+still ran and passed, only the convenience upload step failed, which is why
+merging anyway was defensible. Here, **no job starts at all**, so there is
+zero test signal. PR #24 is deliberately held un-merged per CLAUDE.md's own
+"merge only after CI is green" rule — not a judgment call to override by
+analogy to the quota incident, because the situations aren't actually
+equivalent.
+
+**Blocks everything downstream of this session**, not just Play: the next
+real GitHub tag/release is equally unverifiable until this is fixed. Needs
+the client to sort out GitHub Billing & plans (payment method / spending
+limit) directly — not something any session can do or work around.
+
+### 🔴 Blocker 2 — the in-app self-updater likely conflicts with Play's own update-mechanism policy
+Separate axis from the SMS-permission question, and **not yet raised with the
+client for a decision**. Google Play's Device and Network Abuse policy
+restricts apps distributed via Play from updating themselves by any method
+other than Play's own update mechanism, or downloading executable code from a
+source other than Play. `update/AppUpdater` (the 2026-07-16 in-app updater —
+see that entry below) does exactly the restricted thing: downloads an APK
+from a GitHub Release and installs it via `REQUEST_INSTALL_PACKAGES` +
+`ACTION_VIEW`, entirely outside Play. A build submitted to Play with this
+feature intact risks rejection/removal for **this reason alone**, independent
+of whatever was already cleared on the SMS-permission question.
+
+**Not resolved. Options for whoever picks this up:**
+1. A Play-specific build flavor/variant that compiles out the updater UI,
+   `AppUpdater`, and the `REQUEST_INSTALL_PACKAGES` permission, leaving the
+   GitHub-direct build exactly as it is today. Real work (touches Settings UI,
+   the manifest, and `AppContainer` wiring), not a flag flip — scope it as its
+   own branch, don't fold it into the AAB-pipeline PR.
+2. Submit as-is and accept the policy risk. Given the client already accepted
+   the SMS-permission risk this session, this may be a "yes" too — but it's a
+   distinct risk they haven't been asked about yet, so ask before assuming.
+
+### Signing-key strategy for Play: reused `scope-sms` key, but a real choice is coming at Play Console's *first* upload
+Play Console will ask, at initial **Play App Signing** enrollment (this app's
+first-ever upload, since it's never been on Play before), whether to let
+Google generate the actual app-signing key, or to supply this app's own
+existing key as the real signing key via Google's PEPK export tool. This
+choice is effectively **one-time** — not cleanly reversible after the fact.
+
+- **Let Google generate one (the default, simplest):** Play re-signs with a
+  key only Google holds. Consequence: a device that installed via
+  GitHub-direct (signed `scope-sms`) can never receive an "update" from the
+  Play listing, or vice versa — different signing certs are a hard block at
+  the OS installer level, same as any other signing-identity change this
+  project has already been through once (the `com.scopesms.autoreply` →
+  `com.tricreta.scopesms` migration). For this app (one specific agent,
+  presumably one phone), that's a one-time uninstall if they ever switch
+  channels on the same device — not catastrophic, but the client should know
+  "no issues with keys" is true *within* a channel, not *across* channels,
+  unless option 2 below is taken.
+- **Supply the existing key as the real app-signing key (PEPK):** keeps
+  GitHub-direct and Play on one signing identity, so a device could move
+  between channels without an uninstall. Requires running Google's `pepk.jar`
+  against the existing keystore and Google's encryption certificate — the
+  certificate only exists once the client reaches that step in Play Console,
+  so this can't be prepared in advance; the raw keystore isn't in this repo
+  by design (only the CI secret exists), so this needs the client to fetch
+  the certificate from Play Console and hand it over (or add it as a new
+  secret) before a session can run PEPK inside CI, never locally.
+
+Not decided; flagged so whoever is at the keyboard when the client reaches
+Play Console's signing step knows there's a real choice, not a formality.
+
+### Still needs the client directly — none of this is CI- or session-doable
+Play Console developer account ($25 one-time fee + Google identity
+verification, which can take hours to ~14 days for a new account), the app
+listing itself, a hosted privacy policy URL (mandatory given SMS + PII
+handling — none exists in this repo yet), the Data Safety form, the content
+rating questionnaire, and the **Permissions Declaration Form** for
+`RECEIVE_SMS`/`READ_SMS` specifically (this is almost certainly the actual
+mechanism the client means by "already cleared with Google" — worth
+confirming which stage they've actually reached, since the form, a
+Google-side review, and final approval are three different milestones).
+
+---
+
 ## 🔴 Send-once policy (v1.3.2) — the queue no longer auto-retries, by client directive
 
 **What changed and why.** The original design was bounded retries

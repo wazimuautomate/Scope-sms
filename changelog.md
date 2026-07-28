@@ -4,6 +4,56 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-07-28 — Play Store push started; two blockers found, CI pipeline for Play added
+
+Client asked to take the app to Play Store production, with a signed AAB and
+seamless future updates, while keeping the existing GitHub direct-install
+channel untouched. Branch `feature/play-store-aab-bundle` → PR #24 (open, not
+yet merged — see below).
+
+### Built: on-demand signed AAB workflow
+`.github/workflows/playstore-bundle.yml`, `workflow_dispatch` only. Runs
+`./gradlew bundleRelease`, signed with the existing permanent `scope-sms`
+keystore (same `ANDROID_*` secrets `release.yml` already uses) as the Play
+Console "upload key" — no new key generated. Deliberately does not touch
+`release.yml`, `update.json`, or the tag-triggered GitHub Release flow at all;
+it is a second, independent output. Full rationale in `memory.md`.
+
+### 🔴 Blocker 1 — GitHub Actions is billing-locked account-wide, since 2026-07-19
+Every job on every run (this PR, and `main`'s last push 8 days ago) fails in
+2-3 seconds with "recent account payments have failed or your spending limit
+needs to be increased." Not caused by this session's change — `main`'s own
+last CI run already shows it. No local JDK in this session's environment
+either, so **nothing could be verified**, CI or local. PR #24 is held
+un-merged per CLAUDE.md's own "merge only after CI is green" rule — this
+isn't a judgment call to override, since unlike the 2026-07-18 artifact-quota
+incident (tests/lint/instrumented suites still ran and passed that time),
+here literally no job started at all. **Needs the client to fix GitHub
+Billing & plans before any further CI-dependent work — including cutting the
+next real GitHub release — can be verified.**
+
+### 🔴 Blocker 2 — the in-app self-updater likely conflicts with Play's own update-mechanism policy
+Separate from the SMS-permission question (client says already cleared with
+Google). Play policy (Device and Network Abuse / unauthorized code execution)
+restricts apps distributed via Play from updating themselves by any method
+other than Play's own mechanism, or downloading executable code from outside
+Play. This app's existing `update/AppUpdater` does exactly that: downloads an
+APK and installs it via `REQUEST_INSTALL_PACKAGES` + `ACTION_VIEW`, entirely
+independent of Play. Submitting this exact build to Play risks rejection or
+removal for that reason **alone**, regardless of the SMS-permission outcome.
+Not yet resolved — needs a decision (see `memory.md`) before a production
+submission, most likely a Play-specific build variant that drops the
+in-app updater and `REQUEST_INSTALL_PACKAGES`, keeping both intact only for
+the GitHub-direct build.
+
+### Still needs the client (Play Console — none of this is CI-doable)
+Developer account + $25 fee + identity verification (can take hours–days),
+app listing, privacy policy URL, Data Safety form, content rating
+questionnaire, the Permissions Declaration Form for `RECEIVE_SMS`/`READ_SMS`,
+and the Play App Signing enrollment choice (own key vs Google-generated —
+see `memory.md`, this choice is essentially one-time). None of these are
+things a session can do on the client's behalf.
+
 ## 2026-07-19 — v1.3.2 send-once (stop token-bleed) + v1.4.0 log controls & reset
 
 Same day as the stuck-Sending fix below, two more releases the client asked for.
