@@ -54,7 +54,8 @@ interface OutboundJobDao {
      * retried with **one fewer** attempt left, which is what bounds the loop.
      *
      * On a flaky 2G connection that drops just *after* the request reaches the
-     * gateway — which network/ScopeSmsGateway calls the normal case here, not the
+     * gateway — which the gateway clients (`network/BlazeTechGateway`,
+     * `network/HostPinnacleGateway`) call the normal case here, not the
      * failure case — that loop re-sends the same SMS forever: the customer is
      * texted over and over and the agent pays for every copy. The transactionCode
      * unique index cannot help, because the row already exists; it is the *send*

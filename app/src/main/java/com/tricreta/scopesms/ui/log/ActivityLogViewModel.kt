@@ -139,14 +139,20 @@ class ActivityLogViewModel(
         }
 
         // A SILENT row has no rendered body to send; anything else can be rebuilt
-        // from the record plus the current sender ID.
+        // from the record plus the current sender ID. Unlike a queued OutboundJob,
+        // a bare ActivityRecord never captured a provider (it may predate this
+        // feature entirely), so this reconstruction uses whichever gateway is
+        // ACTIVE right now — the closest available equivalent to "the account
+        // this reply would be sent under if it were being decided today".
         val body = record.replyBody ?: return false
-        val senderId = container.gatewayCredentials.credentials()?.senderId
+        val provider = container.settings.currentActiveGatewayProvider()
+        val senderId = container.gatewayCredentials.credentials(provider)?.senderId
         if (senderId == null) {
             container.activityLog.markFailed(record.transactionCode, GATEWAY_UNSET)
             return false
         }
-        return when (val outcome = container.gateway.sendSms(record.senderPhone, body, senderId)) {
+        val gateway = container.gatewayRegistry.forProvider(provider)
+        return when (val outcome = gateway.sendSms(record.senderPhone, body, senderId)) {
             is SendOutcome.Sent -> {
                 container.activityLog.markSent(record.transactionCode, outcome.messageId)
                 true

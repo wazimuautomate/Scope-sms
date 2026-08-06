@@ -1,6 +1,7 @@
 package com.tricreta.scopesms.queue
 
-import com.tricreta.scopesms.network.ScopeSmsGateway
+import com.tricreta.scopesms.network.GatewayProvider
+import com.tricreta.scopesms.network.GatewayRegistry
 import com.tricreta.scopesms.network.SendOutcome
 
 /**
@@ -16,7 +17,14 @@ import com.tricreta.scopesms.network.SendOutcome
  */
 class OutboundQueue(
     private val store: OutboundJobStore,
-    private val gateway: ScopeSmsGateway,
+    /**
+     * Resolves a job's captured [GatewayProvider] to the [com.tricreta.scopesms.network.SmsGateway]
+     * that actually sends it. A registry, not a single gateway, because a job
+     * must always go out through the account it was created under — see
+     * [OutboundJob.provider] — and the agent may have switched the *active*
+     * provider in Settings while this job was still queued.
+     */
+    private val gateways: GatewayRegistry,
     /**
      * Where a send's outcome goes once it is known. Wired to the activity log by
      * `di/AppContainer`.
@@ -88,12 +96,15 @@ class OutboundQueue(
      * @param message the already-rendered template body (Phase 4). Rendering
      *   happens before this call so the queue never depends on a template that
      *   the agent may have edited by the time the job drains.
+     * @param provider the gateway this job sends through, captured now rather
+     *   than resolved at send time — see [OutboundJob.provider].
      */
     suspend fun enqueue(
         transactionCode: String,
         phone: String,
         message: String,
         senderId: String,
+        provider: GatewayProvider,
     ): EnqueueResult {
         val id = store.insertIfNew(
             OutboundJob(
@@ -103,6 +114,7 @@ class OutboundQueue(
                 senderId = senderId,
                 status = OutboundJobStatus.PENDING,
                 createdAt = now(),
+                provider = provider.name,
             ),
         )
         return if (id == null) EnqueueResult.Duplicate else EnqueueResult.Queued(id)
@@ -117,9 +129,9 @@ class OutboundQueue(
      * burst requirement is about never blocking *ingestion*, which [enqueue]
      * already guarantees by returning before any of this runs.
      *
-     * Never throws: [ScopeSmsGateway] returns failures as values, and anything
-     * unexpected is recorded against the job rather than killing the drain and
-     * stranding the jobs behind it.
+     * Never throws: every [com.tricreta.scopesms.network.SmsGateway] returns
+     * failures as values, and anything unexpected is recorded against the job
+     * rather than killing the drain and stranding the jobs behind it.
      */
     suspend fun drain(): DrainSummary {
         // Reclaim anything a previous process death left mid-flight, before
@@ -174,6 +186,9 @@ class OutboundQueue(
         store.markSending(job.id)
         log.sending(job.transactionCode, job.phone, job.senderId)
 
+        // The job's OWN captured provider, exactly like sendOne — see
+        // OutboundJob.provider for why "whichever is active now" would be wrong.
+        val gateway = gateways.forProvider(GatewayProvider.fromName(job.provider))
         return when (val outcome = gateway.sendSms(job.phone, job.message, job.senderId)) {
             is SendOutcome.Sent -> {
                 log.sent(job.transactionCode, outcome.messageId)
@@ -222,8 +237,10 @@ class OutboundQueue(
         store.markSending(job.id)
         log.sending(job.transactionCode, job.phone, job.senderId)
 
-        // job.senderId, not the current setting: the job must go out under the ID
-        // it was created with. See OutboundJob.senderId and ScopeSmsGateway.sendSms.
+        // job.senderId AND job.provider, not the current settings: the job must
+        // go out under the ID and account it was created with. See
+        // OutboundJob.senderId, OutboundJob.provider and SmsGateway.sendSms.
+        val gateway = gateways.forProvider(GatewayProvider.fromName(job.provider))
         val outcome = gateway.sendSms(
             phone = job.phone,
             message = job.message,
