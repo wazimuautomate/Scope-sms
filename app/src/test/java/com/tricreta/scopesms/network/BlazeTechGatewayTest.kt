@@ -33,10 +33,10 @@ import retrofit2.Response
  * raises SocketTimeoutException on a slow socket is OkHttp's contract, not ours,
  * and asserting it through a real socket buys nothing but flake.
  */
-class ScopeSmsGatewayTest {
+class BlazeTechGatewayTest {
 
     private lateinit var server: MockWebServer
-    private lateinit var gateway: ScopeSmsGateway
+    private lateinit var gateway: BlazeTechGateway
 
     private val credentials = GatewayCredentials(apiKey = "test-key-123", senderId = "SCOPE SMS")
     private var provided: GatewayCredentials? = credentials
@@ -49,7 +49,7 @@ class ScopeSmsGatewayTest {
     fun setUp() {
         server = MockWebServer()
         server.start()
-        gateway = ScopeSmsGateway.create(
+        gateway = BlazeTechGateway.create(
             credentialsProvider = credentialsProvider,
             baseUrl = server.url("/v1/").toString(),
             client = OkHttpClient.Builder()
@@ -76,7 +76,7 @@ class ScopeSmsGatewayTest {
     }
 
     /** Injects a transport-level outcome without a socket. */
-    private fun gatewayThatThrows(error: Throwable) = ScopeSmsGateway(
+    private fun gatewayThatThrows(error: Throwable) = BlazeTechGateway(
         object : ScopeSmsApi {
             override suspend fun sendSms(request: SendSmsRequest): Response<SendSmsResponse> =
                 throw error

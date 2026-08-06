@@ -13,6 +13,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.tricreta.scopesms.network.GatewayCredentials
 import com.tricreta.scopesms.network.GatewayCredentialsProvider
+import com.tricreta.scopesms.network.GatewayProvider
 import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.KeyStore
@@ -28,22 +29,32 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
- * The agent's SCOPE gateway credentials, encrypted at rest.
+ * The agent's SCOPE gateway credentials, encrypted at rest, **scoped per
+ * [GatewayProvider]**.
  *
  * Resolves **open decision 1** in `memory.md`. CLAUDE.md constraint 7: the API
  * key is a secret — never hardcoded, never committed, never logged.
  *
- * ## Why not `EncryptedSharedPreferences`
- * `androidx.security:security-crypto` is the obvious answer and it is a dead
- * end. Every API in it was deprecated at 1.1.0 ("in favour of existing platform
- * APIs and direct use of Android Keystore" — Google's own note), and it has
- * known **keyset-corruption crashes on Tecno/Infinix/itel/Xiaomi**, which is
- * precisely this app's market. A corrupted keyset means the agent's credentials
- * are unrecoverable and their replies stop going out, which is the worst outcome
- * this app has. So this does what Google now recommends: DataStore for
- * persistence, an Android Keystore AES/GCM key for the encryption.
+ * ## Provider-scoping, and the backward-compat fallback
+ * BlazeTech and HostPinnacle each get their own key + sender ID, stored under
+ * their own DataStore keys ([apiKeyKey]/[senderIdKey]) so switching the active
+ * provider in Settings can never lose or overwrite the other one's saved
+ * credentials.
  *
- * ## Shape of the crypto
+ * The original, unscoped keys ([KEY_API_KEY]/[KEY_SENDER_ID]) are kept
+ * **permanently, read-only** — every install that existed before this feature
+ * shipped has its live BlazeTech credentials stored there, and there is no
+ * migration step for them to run. [credentials], [senderId] and [isConfigured]
+ * fall back to the legacy keys for [GatewayProvider.BLAZETECH] only, and only
+ * when the new scoped BlazeTech keys are absent — a **read-through fallback**,
+ * not a one-time write migration, so it keeps working forever with zero agent
+ * action and no "did the migration run" failure mode to worry about. [save]
+ * only ever writes the new scoped keys, so the legacy pair becomes vestigial
+ * (but harmless) the moment the agent re-saves BlazeTech, and [clear] for
+ * BlazeTech removes both the scoped and legacy pair so a deliberate "clear"
+ * fully clears rather than leaving the fallback to mask it.
+ *
+ * ## Shape of the crypto — unchanged
  * A single 256-bit AES key lives in the Keystore under [KEY_ALIAS] and never
  * leaves it — on most handsets it is held in the TEE, so the raw key is not
  * extractable even from a rooted device. Each write gets a fresh random IV
@@ -51,6 +62,12 @@ import kotlinx.coroutines.withContext
  * own), stored alongside the ciphertext. GCM authenticates as well as encrypts,
  * so a tampered value fails to decrypt rather than decrypting to garbage that
  * then gets POSTed to the gateway.
+ *
+ * **One shared Keystore key for both providers, deliberately.** GCM's
+ * per-value random IV already isolates every ciphertext from every other one,
+ * scoped or not, so a second Keystore alias would buy nothing but a second
+ * thing that can go wrong on the OEM Keystore bugs this class's storage choice
+ * already exists to route around.
  *
  * No `setUserAuthenticationRequired`: the queue worker sends replies while the
  * phone is locked in the agent's pocket, which is the entire point of the app.
@@ -70,21 +87,30 @@ import kotlinx.coroutines.withContext
  * file* corrupt each other — that's the rule — but two instances over two files
  * are fine and independent. Keeping the secret in its own file also means
  * [clear] can drop it without touching the agent's SIM choice or toggles.
+ *
+ * ## Not a [GatewayCredentialsProvider] itself
+ * That interface has no provider parameter, and a class whose every method now
+ * takes one doesn't fit it. Use [scopedTo] to get a provider-bound adapter — one
+ * per [com.tricreta.scopesms.network.SmsGateway] instance, each only ever
+ * reading its OWN provider's credentials, never "whichever is active".
  */
 class GatewayCredentialsStore(
     private val dataStore: DataStore<Preferences>,
     private val crypto: Crypto = KeystoreCrypto(),
-) : GatewayCredentialsProvider {
+) {
 
     /**
-     * True once the agent has saved a key and sender ID.
+     * True once the agent has saved a key and sender ID for [provider].
      *
      * Deliberately does not decrypt: onboarding and Settings ask this on every
      * recomposition, and it only needs to know whether a value exists.
      */
-    val isConfigured: Flow<Boolean> = dataStore.data
+    fun isConfigured(provider: GatewayProvider): Flow<Boolean> = dataStore.data
         .safe()
-        .map { it[KEY_API_KEY] != null && it[KEY_SENDER_ID] != null }
+        .map { prefs ->
+            val scoped = prefs[apiKeyKey(provider)] != null && prefs[senderIdKey(provider)] != null
+            scoped || (legacyFallbackApplies(provider) && hasLegacyPair(prefs))
+        }
 
     /**
      * The sender ID for display, or null.
@@ -93,21 +119,24 @@ class GatewayCredentialsStore(
      * SMS the customer receives. It rides in the same blob because splitting it
      * out would buy nothing and add a second failure mode.
      */
-    val senderId: Flow<String?> = dataStore.data
+    fun senderId(provider: GatewayProvider): Flow<String?> = dataStore.data
         .safe()
-        .map { prefs -> prefs[KEY_SENDER_ID]?.let { decryptOrNull(it) } }
+        .map { prefs -> storedSenderId(prefs, provider)?.let { decryptOrNull(it) } }
 
     /**
-     * The credentials, or null when unset or undecryptable.
+     * The credentials for [provider], or null when unset or undecryptable.
      *
-     * Called on the queue's send path, once per drain.
+     * Called on the queue's send path, once per drain — but only for the ONE
+     * provider a given job/gateway instance cares about; see [scopedTo].
      */
-    override suspend fun credentials(): GatewayCredentials? = withContext(Dispatchers.IO) {
+    suspend fun credentials(provider: GatewayProvider): GatewayCredentials? = withContext(Dispatchers.IO) {
         val prefs = dataStore.data.safe().first()
-        val storedKey = prefs[KEY_API_KEY]
-        val storedSender = prefs[KEY_SENDER_ID]
+        val storedKey = storedApiKey(prefs, provider)
+        val storedSender = storedSenderId(prefs, provider)
 
-        // Nothing stored: the agent hasn't finished setup. A normal state.
+        // Nothing stored: the agent hasn't finished setup for this provider. A
+        // normal state — e.g. they configured BlazeTech but never touched
+        // HostPinnacle.
         if (storedKey == null || storedSender == null) return@withContext null
 
         val apiKey = decryptOrNull(storedKey)
@@ -119,15 +148,15 @@ class GatewayCredentialsStore(
             // restore onto a phone that can't decrypt it).
             //
             // Clearing is not tidying up; it is the entire recovery path. Left
-            // in place, `isConfigured` stays true because the *bytes* are still
+            // in place, isConfigured stays true because the *bytes* are still
             // there, so Home shows no warning, Settings shows a masked key, and
             // the app insists it is set up while every single send fails
             // terminally on InvalidApiKey. Dropping the value flips isConfigured
             // to false, which surfaces the "gateway not set up" prompt and gets
             // the agent to re-enter it — the outcome GatewayCredentialsProvider
             // requires and this class promises.
-            Log.e(TAG, "Stored gateway credentials are unreadable; cleared for re-entry.")
-            clear()
+            Log.e(TAG, "Stored gateway credentials for $provider are unreadable; cleared for re-entry.")
+            clear(provider)
             return@withContext null
         }
 
@@ -135,40 +164,88 @@ class GatewayCredentialsStore(
     }
 
     /**
-     * Stores credentials, replacing any previous pair.
+     * Stores credentials for [provider], replacing any previous pair saved
+     * under its own scoped keys. Never touches the other provider's credentials
+     * or (for BlazeTech) the legacy unscoped keys — those are read-only from
+     * here on, see the class doc.
      *
      * @return false if encryption failed — the Keystore is unusable on this
      *   handset. Settings must surface that rather than claiming a save that
      *   didn't happen, which would leave the agent thinking they're set up while
      *   every reply fails.
      */
-    suspend fun save(credentials: GatewayCredentials): Boolean = withContext(Dispatchers.IO) {
-        val encryptedKey = encryptOrNull(credentials.apiKey) ?: return@withContext false
-        val encryptedSender = encryptOrNull(credentials.senderId) ?: return@withContext false
+    suspend fun save(provider: GatewayProvider, credentials: GatewayCredentials): Boolean =
+        withContext(Dispatchers.IO) {
+            val encryptedKey = encryptOrNull(credentials.apiKey) ?: return@withContext false
+            val encryptedSender = encryptOrNull(credentials.senderId) ?: return@withContext false
 
+            try {
+                dataStore.edit { prefs ->
+                    prefs[apiKeyKey(provider)] = encryptedKey
+                    prefs[senderIdKey(provider)] = encryptedSender
+                }
+                true
+            } catch (e: IOException) {
+                Log.e(TAG, "Could not write gateway credentials for $provider.", e)
+                false
+            }
+        }
+
+    /**
+     * Forgets [provider]'s credentials. Used by Settings and after an
+     * undecryptable read.
+     *
+     * For [GatewayProvider.BLAZETECH] this also removes the legacy unscoped
+     * keys — a deliberate "clear" must fully clear, not leave the read-through
+     * fallback masking it and quietly un-clearing the credentials on next read.
+     */
+    suspend fun clear(provider: GatewayProvider) {
         try {
             dataStore.edit { prefs ->
-                prefs[KEY_API_KEY] = encryptedKey
-                prefs[KEY_SENDER_ID] = encryptedSender
+                prefs.remove(apiKeyKey(provider))
+                prefs.remove(senderIdKey(provider))
+                if (legacyFallbackApplies(provider)) {
+                    prefs.remove(KEY_API_KEY)
+                    prefs.remove(KEY_SENDER_ID)
+                }
             }
-            true
         } catch (e: IOException) {
-            Log.e(TAG, "Could not write gateway credentials.", e)
-            false
+            Log.e(TAG, "Could not clear gateway credentials for $provider.", e)
         }
     }
 
-    /** Forgets the credentials. Used by Settings and after an undecryptable read. */
-    suspend fun clear() {
-        try {
-            dataStore.edit { prefs ->
-                prefs.remove(KEY_API_KEY)
-                prefs.remove(KEY_SENDER_ID)
-            }
-        } catch (e: IOException) {
-            Log.e(TAG, "Could not clear gateway credentials.", e)
+    /**
+     * A [GatewayCredentialsProvider] bound to one [provider] — what each
+     * [com.tricreta.scopesms.network.SmsGateway] instance is built with. Each
+     * gateway client only ever needs its OWN provider's credentials, never
+     * "whichever is active" (that question belongs to
+     * [com.tricreta.scopesms.network.GatewayRegistry] and
+     * `SettingsRepository.activeGatewayProvider`, not to a single gateway client).
+     */
+    fun scopedTo(provider: GatewayProvider): GatewayCredentialsProvider =
+        object : GatewayCredentialsProvider {
+            override suspend fun credentials(): GatewayCredentials? =
+                this@GatewayCredentialsStore.credentials(provider)
         }
-    }
+
+    // --- Legacy-key fallback (BlazeTech only) --------------------------------
+
+    /** Only BlazeTech existed before this feature; only it has legacy data to fall back to. */
+    private fun legacyFallbackApplies(provider: GatewayProvider): Boolean =
+        provider == GatewayProvider.BLAZETECH
+
+    private fun hasLegacyPair(prefs: Preferences): Boolean =
+        prefs[KEY_API_KEY] != null && prefs[KEY_SENDER_ID] != null
+
+    private fun storedApiKey(prefs: Preferences, provider: GatewayProvider): String? =
+        prefs[apiKeyKey(provider)]
+            ?: prefs[KEY_API_KEY].takeIf { legacyFallbackApplies(provider) }
+
+    private fun storedSenderId(prefs: Preferences, provider: GatewayProvider): String? =
+        prefs[senderIdKey(provider)]
+            ?: prefs[KEY_SENDER_ID].takeIf { legacyFallbackApplies(provider) }
+
+    // --------------------------------------------------------------------------
 
     private fun encryptOrNull(plaintext: String): String? = try {
         crypto.encrypt(plaintext)
@@ -215,8 +292,20 @@ class GatewayCredentialsStore(
     companion object {
         private const val TAG = "ScopeSms/Credentials"
 
+        /**
+         * Legacy, unscoped keys — **permanent, read-only from here on.** Every
+         * install from before this feature shipped has its live BlazeTech
+         * credentials stored under these. See the class doc for why this is a
+         * read-through fallback rather than a migration.
+         */
         private val KEY_API_KEY = stringPreferencesKey("gateway_api_key")
         private val KEY_SENDER_ID = stringPreferencesKey("gateway_sender_id")
+
+        private fun apiKeyKey(provider: GatewayProvider) =
+            stringPreferencesKey("gateway_api_key_${provider.name.lowercase()}")
+
+        private fun senderIdKey(provider: GatewayProvider) =
+            stringPreferencesKey("gateway_sender_id_${provider.name.lowercase()}")
 
         private val Context.credentialsDataStore by preferencesDataStore(name = "scope_sms_gateway")
 

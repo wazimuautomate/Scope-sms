@@ -7,6 +7,7 @@ import com.tricreta.scopesms.domain.notifications.ReplyDecision
 import com.tricreta.scopesms.domain.notifications.decideReply
 import com.tricreta.scopesms.domain.parser.MpesaPayment
 import com.tricreta.scopesms.domain.rules.MatchOutcome
+import com.tricreta.scopesms.domain.rules.PurchaseWindow
 import com.tricreta.scopesms.domain.rules.RuleSnapshot
 import com.tricreta.scopesms.domain.templates.TemplateEngine
 import com.tricreta.scopesms.domain.templates.TemplateSnapshot
@@ -77,7 +78,8 @@ object PaymentPlanner {
         templates: TemplateSnapshot,
         toggles: NotificationToggles,
     ): PaymentPlan {
-        val outcome = rules.classify(payment.amount)
+        val minuteOfDay = PurchaseWindow.minuteOfDayFrom(payment.time)
+        val outcome = rules.classify(payment.amount, minuteOfDay)
         val decision = decideReply(outcome, toggles)
 
         return when (decision) {
@@ -93,8 +95,11 @@ object PaymentPlanner {
                     // Named even though nothing is sent: the agent asking "why
                     // didn't my customer get a confirmation?" wants to see that
                     // we knew exactly which bundle they bought.
-                    bundleDescription = (outcome as? MatchOutcome.Matched)
-                        ?.rule?.bundleDescription,
+                    bundleDescription = when (outcome) {
+                        is MatchOutcome.Matched -> outcome.rule.bundleDescription
+                        is MatchOutcome.OutOfWindow -> outcome.rule.bundleDescription
+                        else -> null
+                    },
                 )
 
             is ReplyDecision.Send -> {
@@ -120,6 +125,17 @@ object PaymentPlanner {
                         phone = payment.senderPhone,
                         activeRules = rules.activeRules,
                     )
+
+                    TemplateType.OFF_WINDOW -> TemplateEngine.offWindowValues(
+                        name = payment.senderName,
+                        amount = payment.amount,
+                        phone = payment.senderPhone,
+                        // Non-null exactly when the flow is OFF_WINDOW, same
+                        // invariant and same reasoning as MATCHED above.
+                        matchedRule = requireNotNull(rule) {
+                            "OFF_WINDOW flow with no rule — ReplyDecision invariant broken"
+                        },
+                    )
                 }
 
                 PaymentPlan.Reply(
@@ -135,6 +151,7 @@ object PaymentPlanner {
     private fun TemplateType.toMatchType(): MatchType = when (this) {
         TemplateType.MATCHED -> MatchType.MATCHED
         TemplateType.UNMATCHED -> MatchType.UNMATCHED
+        TemplateType.OFF_WINDOW -> MatchType.OFF_WINDOW
     }
 }
 

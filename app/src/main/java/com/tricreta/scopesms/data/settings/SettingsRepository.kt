@@ -13,6 +13,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.tricreta.scopesms.domain.notifications.NotificationToggles
 import com.tricreta.scopesms.domain.settings.ThemePreference
 import com.tricreta.scopesms.domain.sim.SimSelection
+import com.tricreta.scopesms.network.GatewayProvider
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -69,6 +70,30 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         .map { ThemePreference.decode(it[KEY_THEME_PREFERENCE]) }
 
     /**
+     * Last provider read from disk, or null before the first read.
+     *
+     * Cached for the same reason as [cachedSimSelection]: [PaymentPipeline]
+     * reads this on the async decide-and-enqueue path (once per payment) to
+     * choose which gateway a reply is queued under — the same category of read
+     * as the sender ID, and both belong in-memory rather than behind a fresh
+     * DataStore read per SMS (CLAUDE.md constraint 5).
+     */
+    @Volatile
+    private var cachedActiveGatewayProvider: GatewayProvider? = null
+
+    /**
+     * Which SMS gateway is active. Emits the current value immediately, then on
+     * every change. Absent means "never chosen", which decodes through
+     * [GatewayProvider.fromName]'s own fallback to [GatewayProvider.DEFAULT]
+     * (BlazeTech) — every install must keep sending through BlazeTech until the
+     * agent deliberately switches in Settings.
+     */
+    val activeGatewayProvider: Flow<GatewayProvider> = dataStore.data
+        .safe()
+        .map { GatewayProvider.fromName(it[KEY_ACTIVE_GATEWAY_PROVIDER]) }
+        .onEach { cachedActiveGatewayProvider = it }
+
+    /**
      * Last toggles read from disk, or null before the first read.
      *
      * Cached for the same reason as [cachedSimSelection]: the decision path reads
@@ -82,8 +107,8 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
      * Which reply flows are switched on. Emits the current value immediately,
      * then on every change.
      *
-     * Phase 6. Both keys are read from one `Preferences` snapshot, so the pair is
-     * always internally consistent — see [NotificationToggles].
+     * Phase 6. All three keys are read from one `Preferences` snapshot, so the
+     * set is always internally consistent — see [NotificationToggles].
      */
     val notificationToggles: Flow<NotificationToggles> = dataStore.data
         .safe()
@@ -93,6 +118,8 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
                     ?: NotificationToggles.DEFAULT.unmatchedReplyEnabled,
                 matchedReplyEnabled = prefs[KEY_MATCHED_REPLY_ENABLED]
                     ?: NotificationToggles.DEFAULT.matchedReplyEnabled,
+                offWindowReplyEnabled = prefs[KEY_OFF_WINDOW_REPLY_ENABLED]
+                    ?: NotificationToggles.DEFAULT.offWindowReplyEnabled,
             )
         }
         .onEach { cachedToggles = it }
@@ -115,6 +142,21 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         // rather than the old one.
         cachedSimSelection = selection
         dataStore.edit { it[KEY_SIM_SELECTION] = SimSelection.encode(selection) }
+    }
+
+    /**
+     * The active gateway, for callers on the hot path. No I/O once anything in
+     * this process has read [activeGatewayProvider] — see [currentSimSelection].
+     */
+    suspend fun currentActiveGatewayProvider(): GatewayProvider =
+        cachedActiveGatewayProvider ?: activeGatewayProvider.first()
+
+    suspend fun setActiveGatewayProvider(provider: GatewayProvider) {
+        // Cache first, then persist — same order as setSimSelection, so a
+        // payment landing in the same millisecond as the agent's tap is queued
+        // under the gateway they just picked, not the one they just left.
+        cachedActiveGatewayProvider = provider
+        dataStore.edit { it[KEY_ACTIVE_GATEWAY_PROVIDER] = provider.name }
     }
 
     /**
@@ -184,6 +226,11 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[KEY_MATCHED_REPLY_ENABLED] = enabled }
     }
 
+    suspend fun setOffWindowReplyEnabled(enabled: Boolean) {
+        cachedToggles = currentNotificationToggles().copy(offWindowReplyEnabled = enabled)
+        dataStore.edit { it[KEY_OFF_WINDOW_REPLY_ENABLED] = enabled }
+    }
+
     /**
      * Survive a corrupt or unreadable preferences file by falling back to
      * defaults.
@@ -219,12 +266,22 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         // forced light or dark.
         private val KEY_THEME_PREFERENCE = stringPreferencesKey("theme_preference")
 
+        // Absent means "never chosen" and decodes to GatewayProvider.DEFAULT
+        // (BlazeTech) via GatewayProvider.fromName — every install must keep
+        // sending through BlazeTech until the agent deliberately switches.
+        private val KEY_ACTIVE_GATEWAY_PROVIDER = stringPreferencesKey("active_gateway_provider")
+
         // Phase 6. Absent means "never set" and falls back to
         // NotificationToggles.DEFAULT — which is why these are read with `?:`
         // against the default rather than `?: false`. A missing key must not read
         // as "the agent switched this off".
         private val KEY_UNMATCHED_REPLY_ENABLED = booleanPreferencesKey("unmatched_reply_enabled")
         private val KEY_MATCHED_REPLY_ENABLED = booleanPreferencesKey("matched_reply_enabled")
+
+        // The bundle purchase-window feature's third flow. Absent means "never
+        // set" and falls back to NotificationToggles.DEFAULT (true) — same
+        // convention as the two keys above, not `?: false`.
+        private val KEY_OFF_WINDOW_REPLY_ENABLED = booleanPreferencesKey("off_window_reply_enabled")
 
         // Battery-optimisation exemption is deliberately NOT stored here, even
         // though CLAUDE.md's architecture section lists it among the settings.

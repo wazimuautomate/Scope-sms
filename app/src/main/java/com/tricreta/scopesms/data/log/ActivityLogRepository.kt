@@ -95,6 +95,8 @@ class ActivityLogRepository(
         bundleDescription: String? = null,
         replyBody: String? = null,
         timestamp: Long = clock.millis(),
+        /** The gateway this reply is going out through, or null for a silent row. See [ActivityRecord.provider]. */
+        provider: String? = null,
     ): Boolean {
         val rowId = dao.insert(
             ActivityLogEntity(
@@ -107,6 +109,7 @@ class ActivityLogRepository(
                 notifyStatus = notifyStatus.name,
                 bundleDescription = bundleDescription,
                 replyBody = replyBody,
+                provider = provider,
             ),
         )
         return rowId != INSERT_IGNORED

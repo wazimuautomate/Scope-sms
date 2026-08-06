@@ -86,7 +86,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun activityLogDao(): ActivityLogDao
 
     companion object {
-        const val DB_VERSION = 3
+        const val DB_VERSION = 5
 
         private const val DB_NAME = "scope-sms.db"
 
@@ -123,6 +123,51 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v3 → v4: two independent additions, bundled into one migration because
+         * they landed in the same release.
+         *
+         * - `pricing_rules.windowStartMinute` / `windowEndMinute` — the bundle
+         *   purchase-window feature (minutes since midnight; both NULL means "all
+         *   day", same nullable/no-default shape as [MIGRATION_1_2]/[MIGRATION_2_3]
+         *   and for the same reason: existing bundles are preserved untouched and
+         *   read back as [com.tricreta.scopesms.domain.rules.PurchaseWindow.DEFAULT]
+         *   (all day) until the agent edits one to say otherwise.
+         * - `outbound_jobs.provider` — which SMS gateway
+         *   ([com.tricreta.scopesms.network.GatewayProvider]) a queued job was
+         *   created under, mirroring how `outbound_jobs.senderId` is already
+         *   captured at enqueue time rather than read live: a job must send
+         *   through the account its sender ID was registered with, even if the
+         *   agent switches the active gateway in Settings while jobs are still
+         *   queued. NULL (every job queued before this column existed) reads back
+         *   as [com.tricreta.scopesms.network.GatewayProvider.BLAZETECH] — the
+         *   only gateway that existed before this release.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pricing_rules ADD COLUMN windowStartMinute INTEGER")
+                db.execSQL("ALTER TABLE pricing_rules ADD COLUMN windowEndMinute INTEGER")
+                db.execSQL("ALTER TABLE outbound_jobs ADD COLUMN provider TEXT")
+            }
+        }
+
+        /**
+         * v4 → v5: `activity_log.provider` — which
+         * [com.tricreta.scopesms.network.GatewayProvider] a logged payment's
+         * reply actually went out through, so the activity log's "check status"
+         * action (HostPinnacle's `reports/status` lookup) knows which gateway to
+         * ask. Same nullable/no-default shape as every migration above: every
+         * row logged before this column existed reads back as null, which the
+         * UI treats as "assume BlazeTech" — the only gateway that could have
+         * sent it — same fallback [com.tricreta.scopesms.queue.OutboundJob.provider]
+         * already uses.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE activity_log ADD COLUMN provider TEXT")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -141,7 +186,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 // No fallbackToDestructiveMigration() — see the class doc.
                 .build()
     }

@@ -16,7 +16,11 @@ import com.tricreta.scopesms.domain.rules.PricingRuleRepository
 import com.tricreta.scopesms.domain.rules.RuleCache
 import com.tricreta.scopesms.domain.templates.MessageTemplateRepository
 import com.tricreta.scopesms.domain.templates.TemplateCache
-import com.tricreta.scopesms.network.ScopeSmsGateway
+import com.tricreta.scopesms.network.BlazeTechGateway
+import com.tricreta.scopesms.network.GatewayProvider
+import com.tricreta.scopesms.network.GatewayRegistry
+import com.tricreta.scopesms.network.HostPinnacleGateway
+import com.tricreta.scopesms.network.SmsGateway
 import com.tricreta.scopesms.update.AppUpdater
 import com.tricreta.scopesms.queue.OutboundLog
 import com.tricreta.scopesms.queue.OutboundQueue
@@ -137,12 +141,31 @@ class AppContainer(context: Context) {
         GatewayCredentialsStore.create(appContext)
     }
 
-    val gateway: ScopeSmsGateway by lazy { ScopeSmsGateway.create(gatewayCredentials) }
+    /**
+     * Each gateway client is built with credentials scoped to its OWN provider
+     * ([GatewayCredentialsStore.scopedTo]) — it never needs to ask "which
+     * provider is active", only "what's my own key". See [gatewayRegistry] for
+     * the piece that answers "which one do I use for this job".
+     */
+    val blazeTechGateway: SmsGateway by lazy {
+        BlazeTechGateway.create(gatewayCredentials.scopedTo(GatewayProvider.BLAZETECH))
+    }
+
+    val hostPinnacleGateway: SmsGateway by lazy {
+        HostPinnacleGateway.create(gatewayCredentials.scopedTo(GatewayProvider.HOSTPINNACLE))
+    }
+
+    /**
+     * Resolves a [GatewayProvider] — a job's own captured one, or the agent's
+     * currently-active choice for a Settings test send — to the client that
+     * actually sends it.
+     */
+    val gatewayRegistry: GatewayRegistry by lazy { GatewayRegistry(blazeTechGateway, hostPinnacleGateway) }
 
     val outboundQueue: OutboundQueue by lazy {
         OutboundQueue(
             store = RoomOutboundJobStore(database.outboundJobDao()),
-            gateway = gateway,
+            gateways = gatewayRegistry,
             // Closes Phase 5's open loop: the queue knew a send's outcome but had
             // nowhere to report it, so a failed reply updated a job row the agent
             // never sees. Now it lands in the activity log, which is the one place
@@ -244,6 +267,12 @@ class AppContainer(context: Context) {
         // sender check reads this synchronously too, so it must be warm before
         // the first SMS of a burst arrives rather than fall back to disk.
         settings.trustedSenders.launchIn(applicationScope)
+
+        // Same reasoning again for the active gateway: PaymentPipeline reads it
+        // synchronously on the async decide-and-enqueue path (once per payment,
+        // same category of read as the sender ID) to choose which provider's
+        // credentials to resolve and which gateway a job is queued under.
+        settings.activeGatewayProvider.launchIn(applicationScope)
 
         applicationScope.launch {
             keepInSync("rules", pricingRuleRepository.observeAll(), ruleCache::publish)

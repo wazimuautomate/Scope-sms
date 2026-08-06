@@ -2,6 +2,7 @@ package com.tricreta.scopesms.telephony
 
 import android.util.Log
 import com.tricreta.scopesms.data.log.ActivityLogRepository
+import com.tricreta.scopesms.data.settings.GatewayCredentialsStore
 import com.tricreta.scopesms.data.settings.SettingsRepository
 import com.tricreta.scopesms.domain.PaymentPlan
 import com.tricreta.scopesms.domain.PaymentPlanner
@@ -10,7 +11,6 @@ import com.tricreta.scopesms.domain.log.NotifyStatus
 import com.tricreta.scopesms.domain.parser.MpesaPayment
 import com.tricreta.scopesms.domain.rules.RuleCache
 import com.tricreta.scopesms.domain.templates.TemplateCache
-import com.tricreta.scopesms.network.GatewayCredentialsProvider
 import com.tricreta.scopesms.queue.OutboundQueue
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
@@ -45,7 +45,12 @@ class PaymentPipeline(
     private val settings: SettingsRepository,
     private val activityLog: ActivityLogRepository,
     private val queue: OutboundQueue,
-    private val credentials: GatewayCredentialsProvider,
+    /**
+     * Provider-parameterized (not [com.tricreta.scopesms.network.GatewayCredentialsProvider]):
+     * the pipeline must resolve credentials for whichever gateway is currently
+     * active, not one fixed provider baked in at construction.
+     */
+    private val credentials: GatewayCredentialsStore,
     /** Kicks the WorkManager drain. Injected so JVM tests don't need WorkManager. */
     private val requestDrain: () -> Unit,
 ) {
@@ -56,6 +61,17 @@ class PaymentPipeline(
      */
     suspend fun process(payment: MpesaPayment): Boolean {
         val plan = plan(payment) ?: return false
+
+        // Read at enqueue time, not send time: a job must go out under the
+        // sender ID AND gateway it was created with even if the agent edits
+        // Settings while it's still queued (see OutboundJob.senderId and
+        // OutboundJob.provider). Resolved once, up front — a cheap cached
+        // read (see SettingsRepository.currentActiveGatewayProvider), not
+        // I/O, so it costs nothing to have it ready even for a SILENT plan,
+        // which just leaves it unused. Keeps the log row and (for a Reply)
+        // the queued job in agreement on which gateway this payment belongs
+        // to, rather than resolving it twice and risking two different answers.
+        val provider = settings.currentActiveGatewayProvider()
 
         // Unique on transactionCode: false means we've already handled this
         // payment on an earlier delivery of the same broadcast.
@@ -68,6 +84,9 @@ class PaymentPipeline(
             notifyStatus = plan.initialNotifyStatus,
             bundleDescription = plan.bundleDescription,
             replyBody = (plan as? PaymentPlan.Reply)?.body,
+            // Only meaningful when a reply is actually sent — a SILENT row
+            // (toggle off, or no rules configured) never reaches any gateway.
+            provider = (plan as? PaymentPlan.Reply)?.let { provider.name },
         )
         if (!isNew) {
             Log.d(TAG, "Already handled ${payment.transactionCode}; ignoring redelivery.")
@@ -76,15 +95,13 @@ class PaymentPipeline(
 
         if (plan !is PaymentPlan.Reply) return true
 
-        // Read at enqueue time, not send time: a job must go out under the
-        // sender ID it was created with even if the agent edits Settings while
-        // it's still queued (see OutboundJob.senderId).
-        val senderId = credentials.credentials()?.senderId
+        val senderId = credentials.credentials(provider)?.senderId
         if (senderId == null) {
             // Not retryable and not silent. The agent finished setup enough to
-            // turn a toggle on but never entered gateway credentials — the app
-            // must say so, not sit on a queue that can never drain.
-            Log.w(TAG, "No gateway credentials; cannot send reply for ${payment.transactionCode}.")
+            // turn a toggle on but never entered gateway credentials for the
+            // active provider — the app must say so, not sit on a queue that
+            // can never drain.
+            Log.w(TAG, "No gateway credentials for $provider; cannot send reply for ${payment.transactionCode}.")
             activityLog.markFailed(
                 payment.transactionCode,
                 "SMS gateway is not set up — add your API key and sender ID in Settings",
@@ -92,7 +109,9 @@ class PaymentPipeline(
             return true
         }
 
-        when (queue.enqueue(payment.transactionCode, payment.senderPhone, plan.body, senderId)) {
+        when (
+            queue.enqueue(payment.transactionCode, payment.senderPhone, plan.body, senderId, provider)
+        ) {
             is OutboundQueue.EnqueueResult.Queued -> requestDrain()
 
             // The log said this was new but the queue disagrees. Reachable only

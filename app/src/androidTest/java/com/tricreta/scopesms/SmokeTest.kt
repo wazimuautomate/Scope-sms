@@ -9,6 +9,7 @@ import com.tricreta.scopesms.data.settings.GatewayCredentialsStore
 import com.tricreta.scopesms.data.settings.KeystoreCrypto
 import com.tricreta.scopesms.di.AppContainer
 import com.tricreta.scopesms.network.GatewayCredentials
+import com.tricreta.scopesms.network.GatewayProvider
 import com.tricreta.scopesms.telephony.SmsReceiver
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -102,17 +103,18 @@ class SmokeTest {
     @Test
     fun credentialsSurviveARoundTripThroughTheRealStore() = runBlocking {
         val store = GatewayCredentialsStore.create(context)
+        val provider = GatewayProvider.BLAZETECH
         try {
-            val saved = store.save(GatewayCredentials(apiKey = "test-key-abc", senderId = "SCOPE"))
+            val saved = store.save(provider, GatewayCredentials(apiKey = "test-key-abc", senderId = "SCOPE"))
             assertTrue("the keystore refused to store credentials", saved)
 
-            val read = withTimeout(TIMEOUT_MS) { store.credentials() }
+            val read = withTimeout(TIMEOUT_MS) { store.credentials(provider) }
             assertEquals("test-key-abc", read?.apiKey)
             assertEquals("SCOPE", read?.senderId)
         } finally {
             // Never leave a key behind on a device — even a fake one on an
             // emulator that outlives the run.
-            store.clear()
+            store.clear(provider)
         }
     }
 

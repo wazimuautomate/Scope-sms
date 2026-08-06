@@ -25,15 +25,18 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +59,7 @@ import com.tricreta.scopesms.R
 import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PricingRule
 import com.tricreta.scopesms.domain.rules.PurchaseLimit
+import com.tricreta.scopesms.domain.rules.PurchaseWindow
 
 /** The display label for a bundle category. */
 private fun categoryLabelRes(category: BundleCategory): Int = when (category) {
@@ -225,6 +229,7 @@ fun RulesScreen(
             onDescriptionChange = { viewModel.updateDraft(description = it) },
             onCategoryChange = { viewModel.updateDraft(category = it) },
             onPurchaseLimitChange = { viewModel.updateDraft(purchaseLimit = it) },
+            onPurchaseWindowChange = { viewModel.updateDraft(purchaseWindow = it) },
             onSave = viewModel::save,
             onDismiss = viewModel::cancelEditing,
         )
@@ -301,6 +306,15 @@ private fun RuleCard(
                         color = MaterialTheme.colorScheme.tertiary,
                     )
                 }
+                // Same "only badge when it restricts the customer" convention —
+                // the common case (buyable any time) needs no badge.
+                if (!rule.purchaseWindow.isAllDay) {
+                    Text(
+                        text = stringResource(R.string.rules_purchase_window_badge, rule.purchaseWindow.describe()),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
                 if (isDuplicate) {
                     Text(
                         text = stringResource(R.string.rules_duplicate_badge),
@@ -335,6 +349,7 @@ private fun RuleEditorDialog(
     onDescriptionChange: (String) -> Unit,
     onCategoryChange: (BundleCategory) -> Unit,
     onPurchaseLimitChange: (PurchaseLimit) -> Unit,
+    onPurchaseWindowChange: (PurchaseWindow) -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -424,6 +439,14 @@ private fun RuleEditorDialog(
                     }
                 }
 
+                // The bundle's allowed purchase hours — Safaricom restricts some
+                // offers (e.g. "1GB 1Hr") to specific hours. Defaults to all day,
+                // every day, so this is opt-in per bundle.
+                PurchaseWindowSection(
+                    purchaseWindow = draft.purchaseWindow,
+                    onPurchaseWindowChange = onPurchaseWindowChange,
+                )
+
                 errorText?.let {
                     Text(
                         text = it,
@@ -436,4 +459,123 @@ private fun RuleEditorDialog(
         confirmButton = { TextButton(onClick = onSave) { Text(stringResource(R.string.save)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
+}
+
+/**
+ * The default restricted window offered the moment the agent switches "all
+ * day" off — 9:00 AM to 5:00 PM. Deliberately not [PurchaseWindow.DEFAULT]'s
+ * own (0, 1439) values: those are indistinguishable from all-day (see
+ * [PurchaseWindow.isAllDay]), so starting there would leave the switch
+ * reading "all day" again the instant it's unchecked. The agent edits from
+ * here via the time pickers below.
+ */
+private val DEFAULT_RESTRICTED_WINDOW = PurchaseWindow(9 * 60, 17 * 60)
+
+/**
+ * The bundle's allowed purchase hours: a switch for the common "all day"
+ * case, and — only when unchecked — a start/end time picker pair.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PurchaseWindowSection(
+    purchaseWindow: PurchaseWindow,
+    onPurchaseWindowChange: (PurchaseWindow) -> Unit,
+) {
+    var showStartPicker by remember { mutableStateOf(false) }
+    var showEndPicker by remember { mutableStateOf(false) }
+
+    Text(
+        text = stringResource(R.string.rules_purchase_window_label),
+        style = MaterialTheme.typography.labelMedium,
+    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Switch(
+            checked = purchaseWindow.isAllDay,
+            onCheckedChange = { allDay ->
+                onPurchaseWindowChange(if (allDay) PurchaseWindow.DEFAULT else DEFAULT_RESTRICTED_WINDOW)
+            },
+        )
+        Text(stringResource(R.string.rules_purchase_window_all_day))
+    }
+
+    if (!purchaseWindow.isAllDay) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { showStartPicker = true }) {
+                Text(
+                    stringResource(
+                        R.string.rules_purchase_window_start,
+                        formatClockMinute(purchaseWindow.startMinute),
+                    ),
+                )
+            }
+            OutlinedButton(onClick = { showEndPicker = true }) {
+                Text(
+                    stringResource(
+                        R.string.rules_purchase_window_end,
+                        formatClockMinute(purchaseWindow.endMinute),
+                    ),
+                )
+            }
+        }
+    }
+
+    if (showStartPicker) {
+        RuleTimePickerDialog(
+            initialMinute = purchaseWindow.startMinute,
+            onDismiss = { showStartPicker = false },
+            onConfirm = { minute ->
+                onPurchaseWindowChange(purchaseWindow.copy(startMinute = minute))
+                showStartPicker = false
+            },
+        )
+    }
+    if (showEndPicker) {
+        RuleTimePickerDialog(
+            initialMinute = purchaseWindow.endMinute,
+            onDismiss = { showEndPicker = false },
+            onConfirm = { minute ->
+                onPurchaseWindowChange(purchaseWindow.copy(endMinute = minute))
+                showEndPicker = false
+            },
+        )
+    }
+}
+
+/**
+ * A small dialog wrapping a single Material3 [TimePicker], for picking either
+ * end of a [PurchaseWindow]. [initialMinute]/the confirmed value are minutes
+ * since midnight (0..1439); [TimePicker] works in 24h hour/minute, converted
+ * here (`hour * 60 + minute`).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RuleTimePickerDialog(
+    initialMinute: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit,
+) {
+    val state = rememberTimePickerState(
+        initialHour = initialMinute / 60,
+        initialMinute = initialMinute % 60,
+        is24Hour = false,
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        text = { TimePicker(state = state) },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(state.hour * 60 + state.minute) }) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
+}
+
+/** "4:00 PM" — the UI-side twin of [PurchaseWindow]'s own (private) formatter. */
+private fun formatClockMinute(minute: Int): String {
+    val hour24 = minute / 60
+    val min = minute % 60
+    val isPm = hour24 >= 12
+    val hour12 = (hour24 % 12).let { if (it == 0) 12 else it }
+    return "%d:%02d %s".format(hour12, min, if (isPm) "PM" else "AM")
 }

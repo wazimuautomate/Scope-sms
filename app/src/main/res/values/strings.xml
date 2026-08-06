@@ -55,6 +55,8 @@
     <string name="toggle_unmatched_subtitle">When a customer pays an amount that is not one of your bundle prices.</string>
     <string name="toggle_matched_title">Confirm purchases</string>
     <string name="toggle_matched_subtitle">When a customer pays exactly one of your bundle prices. Higher volume — keep off on busy days.</string>
+    <string name="toggle_off_window_title">Reply outside buying hours</string>
+    <string name="toggle_off_window_subtitle">When a customer pays exactly one of your bundle prices, but outside the hours that bundle can be bought in.</string>
 
     <!-- Rules -->
     <string name="rules_add">Add price</string>
@@ -85,6 +87,11 @@
     <string name="rules_purchase_limit_once">Once a day</string>
     <string name="rules_purchase_limit_multiple">Multiple times a day</string>
     <string name="rules_purchase_limit_badge">Once a day per customer</string>
+    <string name="rules_purchase_window_label">When can it be bought?</string>
+    <string name="rules_purchase_window_all_day">Available all day, every day</string>
+    <string name="rules_purchase_window_start">From %1$s</string>
+    <string name="rules_purchase_window_end">Until %1$s</string>
+    <string name="rules_purchase_window_badge">Buy %1$s only</string>
     <string name="rules_duplicate_badge">Another bundle has this price</string>
     <string name="rules_duplicate_warning">%1$d price(s) are used by more than one bundle. Only the newest is quoted to customers.</string>
 
@@ -97,8 +104,10 @@
     <!-- Templates -->
     <string name="tpl_tab_unmatched">Price list reply</string>
     <string name="tpl_tab_matched">Purchase confirmation</string>
+    <string name="tpl_tab_off_window">Outside buying hours</string>
     <string name="tpl_unmatched_explainer">Sent when a customer pays an amount that matches none of your bundles.</string>
     <string name="tpl_matched_explainer">Sent when a customer pays exactly one of your bundle prices.</string>
+    <string name="tpl_off_window_explainer">Sent when a customer pays exactly one of your bundle prices, but outside the hours that bundle can be bought in.</string>
     <string name="tpl_body_label">Message</string>
     <string name="tpl_reset">Reset to default</string>
     <string name="tpl_preview">Preview</string>
@@ -143,6 +152,10 @@
     <string name="log_force_send_title">Send now?</string>
     <string name="log_force_send_body">Send %1$d message(s) right now, straight to the gateway? Each one is charged.</string>
     <string name="log_force_send_result">Sent %1$d, failed %2$d.</string>
+    <string name="log_check_status">Check status</string>
+    <string name="log_check_status_result">Gateway status: %1$s %2$s</string>
+    <string name="log_check_status_unsupported">This gateway doesn\'t support status checks yet.</string>
+    <string name="log_check_status_failed">Could not check status: %1$s</string>
     <string name="log_clear_sent">Clear sent</string>
     <string name="log_clear_pending">Clear pending</string>
     <string name="log_clear_all">Clear all</string>
@@ -155,6 +168,7 @@
     <string name="match_matched">Matched a bundle</string>
     <string name="match_unmatched">No bundle at that price</string>
     <string name="match_no_rules">No prices set up</string>
+    <string name="match_off_window">Outside buying hours</string>
 
     <string name="notify_queued">Sending…</string>
     <string name="notify_sent">Sent</string>
@@ -176,7 +190,7 @@
     <string name="settings_gateway">SMS gateway</string>
     <string name="settings_gateway_help">Replies are sent through your SCOPE SMS account, not from this phone\'s SIM. Your API key is stored encrypted on this device only.</string>
     <string name="settings_gateway_get_key">Don\'t have an API key yet? Get one at</string>
-    <string name="settings_gateway_balance">Make sure your BlazeTech SMS account has enough SMS balance/tokens — replies will fail to send if it runs out.</string>
+    <string name="settings_gateway_balance">Make sure your SMS gateway account has enough SMS balance/tokens — replies will fail to send if it runs out.</string>
     <string name="settings_gateway_saved">Saved: key %1$s · sender ID %2$s</string>
     <string name="settings_gateway_clear">Remove</string>
     <string name="settings_gateway_save_failed">This phone could not store the key securely. Try again, and if it keeps failing, tell your developer.</string>
@@ -187,6 +201,12 @@
     <string name="settings_test_phone">Your own number, e.g. 0712345678</string>
     <string name="settings_test_send">Send test</string>
     <string name="settings_test_ok">Sent. If it arrives, your gateway is set up correctly.</string>
+
+    <!-- Dual-gateway support: which SMS provider is active. Each has its own
+         key + sender ID, entered and saved independently (see GatewaySection). -->
+    <string name="settings_gateway_provider_label">Gateway</string>
+    <string name="settings_gateway_provider_blazetech">BlazeTech SMS</string>
+    <string name="settings_gateway_provider_hostpinnacle">HostPinnacle SMS</string>
 
     <string name="settings_replies">Automatic replies</string>
 

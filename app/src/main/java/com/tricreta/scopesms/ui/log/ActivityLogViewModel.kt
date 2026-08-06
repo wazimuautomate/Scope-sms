@@ -10,6 +10,8 @@ import com.tricreta.scopesms.di.AppContainer
 import com.tricreta.scopesms.domain.log.ActivityRecord
 import com.tricreta.scopesms.domain.log.MatchType
 import com.tricreta.scopesms.domain.log.NotifyStatus
+import com.tricreta.scopesms.network.DeliveryStatusOutcome
+import com.tricreta.scopesms.network.GatewayProvider
 import com.tricreta.scopesms.network.SendOutcome
 import com.tricreta.scopesms.queue.ForceSendResult
 import java.time.Instant
@@ -34,6 +36,13 @@ data class LogFilter(
 
 /** Result of a manual force-send, for a one-line confirmation to the agent. */
 data class ForceSendSummary(val sent: Int, val failed: Int)
+
+/** Result of a manual "check status" — the gateway's own word, or why there isn't one. */
+sealed interface StatusCheckResult {
+    data class Known(val status: String, val cause: String?) : StatusCheckResult
+    data object Unsupported : StatusCheckResult
+    data class Failed(val reason: String) : StatusCheckResult
+}
 
 /** Drives the activity log: the record the agent uses to diagnose the app. */
 class ActivityLogViewModel(
@@ -139,14 +148,20 @@ class ActivityLogViewModel(
         }
 
         // A SILENT row has no rendered body to send; anything else can be rebuilt
-        // from the record plus the current sender ID.
+        // from the record plus the current sender ID. Unlike a queued OutboundJob,
+        // a bare ActivityRecord never captured a provider (it may predate this
+        // feature entirely), so this reconstruction uses whichever gateway is
+        // ACTIVE right now — the closest available equivalent to "the account
+        // this reply would be sent under if it were being decided today".
         val body = record.replyBody ?: return false
-        val senderId = container.gatewayCredentials.credentials()?.senderId
+        val provider = container.settings.currentActiveGatewayProvider()
+        val senderId = container.gatewayCredentials.credentials(provider)?.senderId
         if (senderId == null) {
             container.activityLog.markFailed(record.transactionCode, GATEWAY_UNSET)
             return false
         }
-        return when (val outcome = container.gateway.sendSms(record.senderPhone, body, senderId)) {
+        val gateway = container.gatewayRegistry.forProvider(provider)
+        return when (val outcome = gateway.sendSms(record.senderPhone, body, senderId)) {
             is SendOutcome.Sent -> {
                 container.activityLog.markSent(record.transactionCode, outcome.messageId)
                 true
@@ -154,6 +169,39 @@ class ActivityLogViewModel(
             is SendOutcome.Failed -> {
                 container.activityLog.markFailed(record.transactionCode, outcome.reason.description)
                 false
+            }
+        }
+    }
+
+    // --- Delivery status (HostPinnacle's reports/status; BlazeTech: unsupported) ---
+
+    private val _statusCheckResult = MutableStateFlow<StatusCheckResult?>(null)
+
+    /** Set once a status check finishes; the screen shows it once, then clears it. */
+    val statusCheckResult: StateFlow<StatusCheckResult?> = _statusCheckResult.asStateFlow()
+
+    fun clearStatusCheckResult() {
+        _statusCheckResult.value = null
+    }
+
+    /**
+     * Looks up delivery status for one SENT row — the per-row "Check status"
+     * menu action. [ActivityRecord.provider] is null for a row logged before
+     * this feature existed; that's read as BlazeTech, the only gateway that
+     * could have sent it (same fallback [OutboundJob.provider] already uses).
+     */
+    fun checkStatus(record: ActivityRecord) {
+        val messageId = record.gatewayMessageId
+        if (record.notifyStatus != NotifyStatus.SENT || messageId.isNullOrBlank()) return
+
+        viewModelScope.launch {
+            val provider = GatewayProvider.fromName(record.provider)
+            _statusCheckResult.value = when (
+                val outcome = container.gatewayRegistry.forProvider(provider).checkStatus(messageId)
+            ) {
+                is DeliveryStatusOutcome.Known -> StatusCheckResult.Known(outcome.status, outcome.cause)
+                DeliveryStatusOutcome.NotSupported -> StatusCheckResult.Unsupported
+                is DeliveryStatusOutcome.Failed -> StatusCheckResult.Failed(outcome.reason)
             }
         }
     }

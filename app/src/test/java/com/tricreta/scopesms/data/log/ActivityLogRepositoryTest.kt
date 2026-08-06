@@ -90,6 +90,7 @@ class ActivityLogRepositoryTest {
             matchType = MatchType.UNMATCHED,
             notifyStatus = NotifyStatus.QUEUED,
             replyBody = "Hi JOHN, we received Ksh 20.50...",
+            provider = "HOSTPINNACLE",
         )
 
         val entry = repository.recent.first().single()
@@ -100,6 +101,18 @@ class ActivityLogRepositoryTest {
         assertEquals("20.50", entry.amount.format())
         assertEquals(MatchType.UNMATCHED, entry.matchType)
         assertEquals(NotifyStatus.QUEUED, entry.notifyStatus)
+        assertEquals("HOSTPINNACLE", entry.provider)
+    }
+
+    @Test
+    fun `a row logged before the provider column existed reads back as null, not a guess`() = runTest {
+        // No `provider` argument — exactly what every pre-dual-gateway call site
+        // (and every row from before this column existed) looks like. Must stay
+        // null rather than defaulting to a guessed gateway; the UI layer is what
+        // decides how to treat a null provider (falls back to BlazeTech there).
+        record("TX-LEGACY", MatchType.MATCHED, NotifyStatus.SENT)
+
+        assertNull(repository.recent.first().single().provider)
     }
 
     @Test

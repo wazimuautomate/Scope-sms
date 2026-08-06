@@ -4,6 +4,47 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-08-06 — v1.6.0: HostPinnacle as a second SMS gateway + bundle purchase-window/off-window flow
+
+Branch `feature/hostpinnacle-and-purchase-windows` → `main`. Two client
+requests, built as two parallel background subagents in separate worktrees
+(one for each feature) sharing a common foundational Room-migration commit,
+then merged, integrated, and spot-checked by hand. Full rationale in
+`memory.md`.
+
+### Dual SMS gateway: BlazeTech (unchanged, still default) + HostPinnacle (new)
+Client asked to switch gateways entirely, then corrected mid-build: keep
+BlazeTech working exactly as it does today (it's live in production), add
+HostPinnacle as a second, independently-selectable option instead. Settings
+gets a provider dropdown; each gateway has its own API key + sender ID,
+saved and tested independently. Existing agents' BlazeTech credentials keep
+working with zero action — a read-through fallback to the original storage
+keys, not a migration that could fail to run. A queued reply always sends
+through the gateway it was created under, never "whichever is active now",
+mirroring how the sender ID itself is already frozen at enqueue time.
+
+Also added, from the same HostPinnacle docs sweep: a real delivery-status
+lookup (`reports/status`), surfaced as a manual **"Check status"** action on
+each sent row in the Activity Log. BlazeTech has no equivalent implemented
+yet (its documented `/smsstatus` stays a nice-to-have, per CLAUDE.md) and
+reports "not supported" rather than guessing.
+
+### Bundle purchase-window + third reply flow
+Bundles can now be restricted to specific purchase hours (defaulting to all
+day, every day — nothing existing changes until the agent sets one). A
+payment that matches a bundle's price but arrives outside its window gets a
+new, independently-toggleable third reply — its own tab on the Messages
+screen alongside Price List Reply and Purchase Confirmation, its own default
+template, its own `{purchase_window}` variable — instead of an instant
+purchase confirmation.
+
+### Version: 1.5.0 (12) → 1.6.0 (13)
+Backward-compatible feature release. `DB_VERSION` 3 → 5 (one migration per
+feature's columns, plus a small follow-up one for the Activity Log's
+"Check status" action to know which gateway a historical row went through).
+
+---
+
 ## 2026-07-28 — v1.5.0: promotional-tone checker + gateway signup/balance hints
 
 Same session as the Play Store abandonment below. Branch

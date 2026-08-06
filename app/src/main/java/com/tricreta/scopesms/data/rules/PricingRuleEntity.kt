@@ -8,6 +8,7 @@ import com.tricreta.scopesms.domain.money.KshAmount
 import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PricingRule
 import com.tricreta.scopesms.domain.rules.PurchaseLimit
+import com.tricreta.scopesms.domain.rules.PurchaseWindow
 
 /**
  * A pricing rule as stored. The domain model is
@@ -75,6 +76,21 @@ data class PricingRuleEntity(
      * edit one to say otherwise.
      */
     val purchaseLimit: String? = PurchaseLimit.DEFAULT.name,
+
+    /**
+     * The bundle's purchase window, in minutes since local midnight.
+     *
+     * **Nullable on purpose**, exactly like [category]/[purchaseLimit]: the
+     * v3→v4 migration adds both columns with a plain `ALTER TABLE … ADD COLUMN
+     * … INTEGER` (no default), so every pre-existing row is NULL in both. That
+     * reads back as [PurchaseWindow.DEFAULT] (all day, every day) via
+     * [toDomain] — every bundle the client already priced keeps behaving
+     * exactly as before until they edit one to restrict it. Both columns are
+     * always written together (see [fromDomain]): there is no state where one
+     * is null and the other isn't, other than a pre-migration row.
+     */
+    val windowStartMinute: Int? = PurchaseWindow.DEFAULT.startMinute,
+    val windowEndMinute: Int? = PurchaseWindow.DEFAULT.endMinute,
 ) {
     fun toDomain(): PricingRule = PricingRule(
         id = id,
@@ -83,6 +99,11 @@ data class PricingRuleEntity(
         isActive = isActive,
         category = BundleCategory.fromName(category),
         purchaseLimit = PurchaseLimit.fromName(purchaseLimit),
+        purchaseWindow = if (windowStartMinute != null && windowEndMinute != null) {
+            PurchaseWindow(windowStartMinute, windowEndMinute)
+        } else {
+            PurchaseWindow.DEFAULT
+        },
     )
 
     companion object {
@@ -93,6 +114,10 @@ data class PricingRuleEntity(
             isActive = rule.isActive,
             category = rule.category.name,
             purchaseLimit = rule.purchaseLimit.name,
+            // New writes are never null — null only ever occurs on rows from
+            // before this column existed, exactly like category/purchaseLimit.
+            windowStartMinute = rule.purchaseWindow.startMinute,
+            windowEndMinute = rule.purchaseWindow.endMinute,
         )
     }
 }

@@ -14,6 +14,7 @@ import com.tricreta.scopesms.domain.reliability.OemGuidance
 import com.tricreta.scopesms.domain.settings.ThemePreference
 import com.tricreta.scopesms.domain.sim.SimSelection
 import com.tricreta.scopesms.network.GatewayCredentials
+import com.tricreta.scopesms.network.GatewayProvider
 import com.tricreta.scopesms.network.SendOutcome
 import com.tricreta.scopesms.telephony.SimInfo
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,16 +45,29 @@ data class SettingsUiState(
     val toggles: NotificationToggles = NotificationToggles.DEFAULT,
     val themePreference: ThemePreference = ThemePreference.DEFAULT,
     val batteryExempt: Boolean = true,
-    val gatewayConfigured: Boolean = false,
+    // Which gateway the agent currently has selected in the dropdown. Defaults
+    // to GatewayProvider.DEFAULT (BlazeTech) — every install before this
+    // feature existed only ever had BlazeTech, so a fresh/unmigrated state must
+    // read the same way.
+    val activeGatewayProvider: GatewayProvider = GatewayProvider.DEFAULT,
+    // Each provider's configured/sender-id status, tracked independently so
+    // switching the dropdown never has to guess or re-fetch — see
+    // gatewayConfigured/senderId below, which derive from whichever of these
+    // matches activeGatewayProvider.
+    val blazeTechConfigured: Boolean = false,
+    val blazeTechSenderId: String = "",
+    val hostPinnacleConfigured: Boolean = false,
+    val hostPinnacleSenderId: String = "",
     // Extra sender addresses whitelisted to be read as M-Pesa confirmations,
     // beyond the official shortcode — e.g. the agent's own SKYSCOPE_ number
     // when it resells a service that texts the same till-confirmation format.
     val trustedSenders: Set<String> = emptySet(),
     val trustedSenderInput: String = "",
-    val senderId: String = "",
     val apiKeyInput: String = "",
-    // The client's default. Most agents send under SKYSCOPE_, so pre-fill it —
-    // they can still overwrite it. Applied only until a stored value loads.
+    // The client's default, for BlazeTech only. Most agents send under
+    // SKYSCOPE_, so pre-fill it — they can still overwrite it. Applied only
+    // until a stored value loads, or reset here on a provider switch — see
+    // SettingsViewModel.defaultSenderIdInputFor.
     val senderIdInput: String = DEFAULT_SENDER_ID,
     val saveFailed: Boolean = false,
     val testSend: TestSendState = TestSendState.Idle,
@@ -61,6 +75,25 @@ data class SettingsUiState(
     val versionName: String = BuildConfig.VERSION_NAME,
     val versionCode: Int = BuildConfig.VERSION_CODE,
 ) {
+    /**
+     * Whether the CURRENTLY ACTIVE provider is configured — the field the
+     * existing `GatewaySection` composable code already reads, now derived
+     * rather than collected directly so switching the dropdown needs no
+     * changes to that composable.
+     */
+    val gatewayConfigured: Boolean
+        get() = when (activeGatewayProvider) {
+            GatewayProvider.BLAZETECH -> blazeTechConfigured
+            GatewayProvider.HOSTPINNACLE -> hostPinnacleConfigured
+        }
+
+    /** The active provider's saved sender ID, for the "Saved: ..." display line. */
+    val senderId: String
+        get() = when (activeGatewayProvider) {
+            GatewayProvider.BLAZETECH -> blazeTechSenderId
+            GatewayProvider.HOSTPINNACLE -> hostPinnacleSenderId
+        }
+
     /**
      * The key, masked. Never the real thing — a screenshot of Settings is the
      * most likely way it leaks, and the agent only needs to know one is stored.
@@ -96,21 +129,67 @@ class SettingsViewModel(
                 _uiState.update { it.copy(simSelection = selection) }
             }
         }
+        // Which gateway is active. Hydrates the on-screen inputs the same way
+        // selectGatewayProvider does whenever the persisted provider differs
+        // from what's already in state — covers cold start landing on a
+        // non-default provider, and is a no-op after selectGatewayProvider's
+        // own optimistic update (state already matches by the time this
+        // Flow's write is reflected back).
         viewModelScope.launch {
-            container.gatewayCredentials.isConfigured.collect { configured ->
-                _uiState.update { it.copy(gatewayConfigured = configured) }
+            container.settings.activeGatewayProvider.collect { provider ->
+                _uiState.update { state ->
+                    if (state.activeGatewayProvider == provider) {
+                        state
+                    } else {
+                        state.copy(
+                            activeGatewayProvider = provider,
+                            apiKeyInput = "",
+                            senderIdInput = defaultSenderIdInputFor(provider),
+                            saveFailed = false,
+                            testSend = TestSendState.Idle,
+                        )
+                    }
+                }
+            }
+        }
+        // Five flows total for gateway state (this one plus the four below),
+        // replacing the single-provider isConfigured/senderId pair the app had
+        // before dual-gateway support.
+        viewModelScope.launch {
+            container.gatewayCredentials.isConfigured(GatewayProvider.BLAZETECH).collect { configured ->
+                _uiState.update { it.copy(blazeTechConfigured = configured) }
             }
         }
         viewModelScope.launch {
-            container.gatewayCredentials.senderId.collect { id ->
+            container.gatewayCredentials.senderId(GatewayProvider.BLAZETECH).collect { id ->
                 _uiState.update { state ->
-                    state.copy(
-                        senderId = id.orEmpty(),
-                        // A stored ID wins over the default prefill; otherwise keep
-                        // whatever the agent has typed (or the SKYSCOPE_ default).
-                        senderIdInput = id?.takeIf { it.isNotBlank() }
-                            ?: state.senderIdInput,
-                    )
+                    val updated = state.copy(blazeTechSenderId = id.orEmpty())
+                    // A stored ID wins over whatever's in the input, but ONLY
+                    // while BlazeTech is the active provider — otherwise this
+                    // background flow would clobber the other provider's input
+                    // the agent may be mid-editing.
+                    if (state.activeGatewayProvider == GatewayProvider.BLAZETECH && !id.isNullOrBlank()) {
+                        updated.copy(senderIdInput = id)
+                    } else {
+                        updated
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            container.gatewayCredentials.isConfigured(GatewayProvider.HOSTPINNACLE).collect { configured ->
+                _uiState.update { it.copy(hostPinnacleConfigured = configured) }
+            }
+        }
+        viewModelScope.launch {
+            container.gatewayCredentials.senderId(GatewayProvider.HOSTPINNACLE).collect { id ->
+                _uiState.update { state ->
+                    val updated = state.copy(hostPinnacleSenderId = id.orEmpty())
+                    if (state.activeGatewayProvider == GatewayProvider.HOSTPINNACLE && !id.isNullOrBlank()) {
+                        updated.copy(senderIdInput = id)
+                    } else {
+                        updated
+                    }
                 }
             }
         }
@@ -138,6 +217,10 @@ class SettingsViewModel(
 
     fun setMatchedEnabled(enabled: Boolean) {
         viewModelScope.launch { container.settings.setMatchedReplyEnabled(enabled) }
+    }
+
+    fun setOffWindowEnabled(enabled: Boolean) {
+        viewModelScope.launch { container.settings.setOffWindowReplyEnabled(enabled) }
     }
 
     fun setThemePreference(preference: ThemePreference) {
@@ -192,12 +275,37 @@ class SettingsViewModel(
         _uiState.update { it.copy(senderIdInput = value, saveFailed = false) }
     }
 
+    /**
+     * The agent picked a gateway in the dropdown. Persists immediately — no
+     * separate "save" step for the provider choice itself, mirroring how SIM
+     * selection and theme preference already persist on tap — and resets the
+     * on-screen credential inputs to a clean slate for the newly-active
+     * provider, so the agent can never accidentally re-save one provider's
+     * key/sender ID over the other's.
+     */
+    fun selectGatewayProvider(provider: GatewayProvider) {
+        if (_uiState.value.activeGatewayProvider == provider) return
+
+        _uiState.update {
+            it.copy(
+                activeGatewayProvider = provider,
+                apiKeyInput = "",
+                senderIdInput = defaultSenderIdInputFor(provider),
+                saveFailed = false,
+                testSend = TestSendState.Idle,
+            )
+        }
+        viewModelScope.launch { container.settings.setActiveGatewayProvider(provider) }
+    }
+
     fun saveGateway() {
         val state = _uiState.value
         if (!state.canSaveGateway) return
 
+        val provider = state.activeGatewayProvider
         viewModelScope.launch {
             val saved = container.gatewayCredentials.save(
+                provider,
                 GatewayCredentials(
                     apiKey = state.apiKeyInput.trim(),
                     senderId = state.senderIdInput.trim(),
@@ -217,16 +325,23 @@ class SettingsViewModel(
     }
 
     fun clearGateway() {
+        val provider = _uiState.value.activeGatewayProvider
         viewModelScope.launch {
-            container.gatewayCredentials.clear()
+            container.gatewayCredentials.clear(provider)
             _uiState.update {
                 it.copy(
                     apiKeyInput = "",
-                    senderIdInput = DEFAULT_SENDER_ID,
+                    senderIdInput = defaultSenderIdInputFor(provider),
                     testSend = TestSendState.Idle,
                 )
             }
         }
+    }
+
+    /** BlazeTech's prefill is the client's default; HostPinnacle's is blank — see the class doc. */
+    private fun defaultSenderIdInputFor(provider: GatewayProvider): String = when (provider) {
+        GatewayProvider.BLAZETECH -> DEFAULT_SENDER_ID
+        GatewayProvider.HOSTPINNACLE -> ""
     }
 
     /**
@@ -259,9 +374,11 @@ class SettingsViewModel(
     fun sendTest(phone: String) {
         if (!_uiState.value.canTestSend) return
 
+        val provider = _uiState.value.activeGatewayProvider
         _uiState.update { it.copy(testSend = TestSendState.Sending) }
         viewModelScope.launch {
-            val outcome = container.gateway.sendSms(phone = phone.trim(), message = TEST_MESSAGE)
+            val outcome = container.gatewayRegistry.forProvider(provider)
+                .sendSms(phone = phone.trim(), message = TEST_MESSAGE)
             _uiState.update {
                 it.copy(
                     testSend = when (outcome) {

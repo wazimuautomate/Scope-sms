@@ -14,12 +14,15 @@ import com.tricreta.scopesms.domain.log.ActivityRecord
 import com.tricreta.scopesms.domain.log.DashboardStats
 import com.tricreta.scopesms.domain.notifications.NotificationToggles
 import com.tricreta.scopesms.domain.permissions.AppPermission
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -90,6 +93,17 @@ class HomeViewModel(
         val batteryExempt: Boolean = true,
     )
 
+    /**
+     * Whether the CURRENTLY ACTIVE gateway is configured — switches which
+     * provider's `isConfigured` it's watching whenever the agent changes the
+     * active gateway in Settings. `flatMapLatest`, not a second `combine`
+     * argument, because `activeGatewayProvider` is itself a Flow the
+     * downstream check depends on, not a value available up front.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val activeGatewayConfigured: Flow<Boolean> = container.settings.activeGatewayProvider
+        .flatMapLatest { provider -> container.gatewayCredentials.isConfigured(provider) }
+
     val uiState: StateFlow<HomeUiState> = combine(
         // Wrapped, not called directly: statsForToday() captures the day boundary
         // at *call* time and bakes it into the Room query, and it is a fun rather
@@ -101,7 +115,7 @@ class HomeViewModel(
         flow { emitAll(container.activityLog.statsForToday()) },
         container.settings.notificationToggles,
         container.ruleCache.snapshots,
-        container.gatewayCredentials.isConfigured,
+        activeGatewayConfigured,
         systemState,
     ) { stats, toggles, rules, gatewayConfigured, system ->
         HomeUiState(

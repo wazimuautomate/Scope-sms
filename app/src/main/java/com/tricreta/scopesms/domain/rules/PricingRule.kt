@@ -18,6 +18,11 @@ import com.tricreta.scopesms.domain.money.KshAmount
  * @param purchaseLimit how often one customer can buy this bundle in a day —
  *   Safaricom restricts some offers to once per number per day. Defaults to
  *   [PurchaseLimit.DEFAULT]; pre-existing rows migrate to it.
+ * @param purchaseWindow the time-of-day window this bundle can be bought in —
+ *   Safaricom restricts some offers (e.g. "1GB 1Hr") to specific hours.
+ *   Defaults to [PurchaseWindow.DEFAULT] (all day, every day); pre-existing
+ *   rows migrate to it, so nothing already priced silently becomes
+ *   time-restricted.
  */
 data class PricingRule(
     val id: Long,
@@ -26,6 +31,7 @@ data class PricingRule(
     val isActive: Boolean = true,
     val category: BundleCategory = BundleCategory.DEFAULT,
     val purchaseLimit: PurchaseLimit = PurchaseLimit.DEFAULT,
+    val purchaseWindow: PurchaseWindow = PurchaseWindow.DEFAULT,
 )
 
 /**
@@ -56,6 +62,9 @@ sealed interface MatchOutcome {
 
     /** The amount is a known bundle price. Matched-flow candidate. */
     data class Matched(val rule: PricingRule) : MatchOutcome
+
+    /** The amount matches a bundle price, but arrived outside that bundle's purchase window. */
+    data class OutOfWindow(val rule: PricingRule) : MatchOutcome
 
     /** Rules exist and none has this amount. Unmatched-flow candidate. */
     data object Unmatched : MatchOutcome
@@ -96,10 +105,23 @@ class RuleSnapshot private constructor(
 
     /**
      * Classifies a payment. O(1): one hash lookup, no I/O, safe from any thread.
+     *
+     * @param minuteOfDay local minutes-since-midnight (0..1439) to check a
+     *   matched rule's purchase window against, or null to skip the window check
+     *   entirely and treat every match as in-window — used by callers (mostly
+     *   tests) that don't care about the purchase-window feature. The real decide
+     *   path ([com.tricreta.scopesms.domain.PaymentPlanner]) always passes a real
+     *   value, parsed from the payment's own M-Pesa-reported time.
      */
-    fun classify(amount: KshAmount): MatchOutcome = when {
+    fun classify(amount: KshAmount, minuteOfDay: Int? = null): MatchOutcome = when {
         activeRules.isEmpty() -> MatchOutcome.NoRulesConfigured
-        else -> byAmount[amount]?.let(MatchOutcome::Matched) ?: MatchOutcome.Unmatched
+        else -> byAmount[amount]?.let { rule ->
+            if (minuteOfDay == null || rule.purchaseWindow.contains(minuteOfDay)) {
+                MatchOutcome.Matched(rule)
+            } else {
+                MatchOutcome.OutOfWindow(rule)
+            }
+        } ?: MatchOutcome.Unmatched
     }
 
     companion object {

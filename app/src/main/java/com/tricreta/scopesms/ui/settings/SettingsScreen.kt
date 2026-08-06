@@ -16,6 +16,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -49,6 +54,7 @@ import com.tricreta.scopesms.R
 import com.tricreta.scopesms.diagnostics.CrashReporter
 import com.tricreta.scopesms.domain.settings.ThemePreference
 import com.tricreta.scopesms.domain.sim.SimSelection
+import com.tricreta.scopesms.network.GatewayProvider
 import com.tricreta.scopesms.telephony.SimInfo
 import com.tricreta.scopesms.ui.common.requestBatteryExemption
 import com.tricreta.scopesms.ui.reliability.OemGuidanceSection
@@ -105,6 +111,7 @@ fun SettingsScreen(
             toggles = state.toggles,
             onUnmatchedChange = viewModel::setUnmatchedEnabled,
             onMatchedChange = viewModel::setMatchedEnabled,
+            onOffWindowChange = viewModel::setOffWindowEnabled,
         )
 
         HorizontalDivider()
@@ -264,18 +271,19 @@ private fun CrashReportCard(onShare: () -> Unit, onDismiss: () -> Unit) {
 }
 
 /**
- * The two independent reply flows, moved here from Home.
+ * The three independent reply flows, moved here from Home.
  *
  * They are the agent's throttle on sender-ID ban risk (CLAUDE.md, "What this app
  * is"): confirmations are higher-volume, so the agent turns that flow off on a
- * busy day. An empty rule list overrides both anyway, so leaving them on before
- * prices are entered sends nothing.
+ * busy day. An empty rule list overrides all three anyway, so leaving them on
+ * before prices are entered sends nothing.
  */
 @Composable
 private fun RepliesSection(
     toggles: com.tricreta.scopesms.domain.notifications.NotificationToggles,
     onUnmatchedChange: (Boolean) -> Unit,
     onMatchedChange: (Boolean) -> Unit,
+    onOffWindowChange: (Boolean) -> Unit,
 ) {
     ToggleRow(
         title = stringResource(R.string.toggle_unmatched_title),
@@ -288,6 +296,12 @@ private fun RepliesSection(
         subtitle = stringResource(R.string.toggle_matched_subtitle),
         checked = toggles.matchedReplyEnabled,
         onCheckedChange = onMatchedChange,
+    )
+    ToggleRow(
+        title = stringResource(R.string.toggle_off_window_title),
+        subtitle = stringResource(R.string.toggle_off_window_subtitle),
+        checked = toggles.offWindowReplyEnabled,
+        onCheckedChange = onOffWindowChange,
     )
 }
 
@@ -456,13 +470,18 @@ private fun SimOption(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * Points a new agent at where BlazeTech SMS actually issues an API key.
+ * Points a new agent at where the currently-selected gateway actually issues
+ * an API key. BlazeTech keeps its existing direct API-keys link; HostPinnacle
+ * links to their portal, where a key is managed per their own docs.
  * Without this, "API key" is a field with nothing to type into it and no
  * indication of where one comes from.
  */
 @Composable
-private fun ApiKeySignupHint() {
-    val url = "https://sms.blazetechscope.com/apikeys"
+private fun ApiKeySignupHint(provider: GatewayProvider) {
+    val url = when (provider) {
+        GatewayProvider.BLAZETECH -> "https://sms.blazetechscope.com/apikeys"
+        GatewayProvider.HOSTPINNACLE -> "https://smsportal.hostpinnacle.co.ke/"
+    }
     val prefix = stringResource(R.string.settings_gateway_get_key)
     val text = buildAnnotatedString {
         append(prefix)
@@ -484,16 +503,72 @@ private fun ApiKeySignupHint() {
     Text(text = text, style = MaterialTheme.typography.bodySmall)
 }
 
+/**
+ * Which SMS gateway is active — BlazeTech (the original, still live in
+ * production) or HostPinnacle. Each has its own API key + sender ID, entered
+ * and saved independently ([GatewaySection] below); switching here never
+ * loses or overwrites the other provider's saved credentials (CLAUDE.md,
+ * "SMS Gateway Integration").
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GatewayProviderDropdown(
+    selected: GatewayProvider,
+    onSelect: (GatewayProvider) -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val options = listOf(
+        GatewayProvider.BLAZETECH to stringResource(R.string.settings_gateway_provider_blazetech),
+        GatewayProvider.HOSTPINNACLE to stringResource(R.string.settings_gateway_provider_hostpinnacle),
+    )
+    val selectedLabel = options.first { it.first == selected }.second
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+    ) {
+        OutlinedTextField(
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth(),
+            readOnly = true,
+            value = selectedLabel,
+            onValueChange = {},
+            label = { Text(stringResource(R.string.settings_gateway_provider_label)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEach { (provider, label) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        expanded = false
+                        onSelect(provider)
+                    },
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun GatewaySection(state: SettingsUiState, viewModel: SettingsViewModel) {
     var testPhone by rememberSaveable { mutableStateOf("") }
+
+    GatewayProviderDropdown(
+        selected = state.activeGatewayProvider,
+        onSelect = viewModel::selectGatewayProvider,
+    )
 
     Text(
         text = stringResource(R.string.settings_gateway_help),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    ApiKeySignupHint()
+    ApiKeySignupHint(state.activeGatewayProvider)
     Text(
         text = stringResource(R.string.settings_gateway_balance),
         style = MaterialTheme.typography.bodySmall,
