@@ -6,16 +6,23 @@ import com.tricreta.scopesms.domain.templates.TemplateType
 /**
  * How the rules engine classified a logged payment.
  *
- * Mirrors [com.tricreta.scopesms.domain.rules.MatchOutcome]'s three arms rather
- * than BUILD-PLAN Phase 8's stated two (`MATCHED|UNMATCHED`).
+ * Mirrors [com.tricreta.scopesms.domain.rules.MatchOutcome]'s arms rather than
+ * BUILD-PLAN Phase 8's stated two (`MATCHED|UNMATCHED`).
  *
- * **The third arm is a deliberate addition to the plan** (workflow rule 7 — it is
- * recorded in memory.md). A payment that arrives before the agent has entered any
- * prices is neither matched nor unmatched, and forcing it into `UNMATCHED` would
- * be an outright lie in the one record the agent uses to diagnose the app: it
- * would read as "a customer paid the wrong amount and we replied/stayed silent"
- * when what actually happened is "the app isn't set up yet". Those need different
- * fixes, so they need different rows.
+ * **The third arm ([NO_RULES_CONFIGURED]) is a deliberate addition to the plan**
+ * (workflow rule 7 — it is recorded in memory.md). A payment that arrives before
+ * the agent has entered any prices is neither matched nor unmatched, and forcing
+ * it into `UNMATCHED` would be an outright lie in the one record the agent uses
+ * to diagnose the app: it would read as "a customer paid the wrong amount and we
+ * replied/stayed silent" when what actually happened is "the app isn't set up
+ * yet". Those need different fixes, so they need different rows.
+ *
+ * **The fourth arm ([OFF_WINDOW]) is the bundle purchase-window feature**: the
+ * amount matched a bundle price, but arrived outside that bundle's allowed
+ * hours. Distinct from [MATCHED] for the same reason [NO_RULES_CONFIGURED] is
+ * distinct from [UNMATCHED] — "confirmed and sent" and "matched but reassured,
+ * not confirmed" are different outcomes the agent needs to tell apart at a
+ * glance.
  */
 enum class MatchType {
     MATCHED,
@@ -23,6 +30,9 @@ enum class MatchType {
 
     /** Payment arrived with an empty price list. See [ReplyDecision.NoRulesConfigured]. */
     NO_RULES_CONFIGURED,
+
+    /** Matched a bundle price, but outside that bundle's purchase window. */
+    OFF_WINDOW,
     ;
 
     /** The reply flow this classification belongs to, or null for [NO_RULES_CONFIGURED]. */
@@ -31,6 +41,7 @@ enum class MatchType {
             MATCHED -> TemplateType.MATCHED
             UNMATCHED -> TemplateType.UNMATCHED
             NO_RULES_CONFIGURED -> null
+            OFF_WINDOW -> TemplateType.OFF_WINDOW
         }
 }
 

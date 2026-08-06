@@ -55,6 +55,8 @@
     <string name="toggle_unmatched_subtitle">When a customer pays an amount that is not one of your bundle prices.</string>
     <string name="toggle_matched_title">Confirm purchases</string>
     <string name="toggle_matched_subtitle">When a customer pays exactly one of your bundle prices. Higher volume — keep off on busy days.</string>
+    <string name="toggle_off_window_title">Reply outside buying hours</string>
+    <string name="toggle_off_window_subtitle">When a customer pays exactly one of your bundle prices, but outside the hours that bundle can be bought in.</string>
 
     <!-- Rules -->
     <string name="rules_add">Add price</string>
@@ -85,6 +87,11 @@
     <string name="rules_purchase_limit_once">Once a day</string>
     <string name="rules_purchase_limit_multiple">Multiple times a day</string>
     <string name="rules_purchase_limit_badge">Once a day per customer</string>
+    <string name="rules_purchase_window_label">When can it be bought?</string>
+    <string name="rules_purchase_window_all_day">Available all day, every day</string>
+    <string name="rules_purchase_window_start">From %1$s</string>
+    <string name="rules_purchase_window_end">Until %1$s</string>
+    <string name="rules_purchase_window_badge">Buy %1$s only</string>
     <string name="rules_duplicate_badge">Another bundle has this price</string>
     <string name="rules_duplicate_warning">%1$d price(s) are used by more than one bundle. Only the newest is quoted to customers.</string>
 
@@ -97,8 +104,10 @@
     <!-- Templates -->
     <string name="tpl_tab_unmatched">Price list reply</string>
     <string name="tpl_tab_matched">Purchase confirmation</string>
+    <string name="tpl_tab_off_window">Outside buying hours</string>
     <string name="tpl_unmatched_explainer">Sent when a customer pays an amount that matches none of your bundles.</string>
     <string name="tpl_matched_explainer">Sent when a customer pays exactly one of your bundle prices.</string>
+    <string name="tpl_off_window_explainer">Sent when a customer pays exactly one of your bundle prices, but outside the hours that bundle can be bought in.</string>
     <string name="tpl_body_label">Message</string>
     <string name="tpl_reset">Reset to default</string>
     <string name="tpl_preview">Preview</string>
@@ -155,6 +164,7 @@
     <string name="match_matched">Matched a bundle</string>
     <string name="match_unmatched">No bundle at that price</string>
     <string name="match_no_rules">No prices set up</string>
+    <string name="match_off_window">Outside buying hours</string>
 
     <string name="notify_queued">Sending…</string>
     <string name="notify_sent">Sent</string>

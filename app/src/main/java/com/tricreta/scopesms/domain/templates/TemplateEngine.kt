@@ -129,6 +129,25 @@ object TemplateEngine {
     )
 
     /**
+     * Values for the off-window flow: the payment matched a bundle price, but
+     * arrived outside that bundle's purchase window ([matchedRule.purchaseWindow]).
+     */
+    fun offWindowValues(
+        name: String?,
+        amount: KshAmount,
+        phone: String?,
+        matchedRule: PricingRule,
+    ): Map<TemplateVariable, String?> = mapOf(
+        TemplateVariable.NAME to name,
+        TemplateVariable.FIRST_NAME to firstNameOf(name),
+        TemplateVariable.LAST_NAME to lastNameOf(name),
+        TemplateVariable.AMOUNT to amount.format(),
+        TemplateVariable.PHONE to phone,
+        TemplateVariable.PACKAGE to matchedRule.bundleDescription,
+        TemplateVariable.PURCHASE_WINDOW to matchedRule.purchaseWindow.describe(),
+    )
+
+    /**
      * The first word of [name], e.g. `"Skycope"` from `"Skycope Bonke"`.
      *
      * Null (not blank) for anything that isn't real text, so it degrades

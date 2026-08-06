@@ -146,6 +146,53 @@ class RuleSnapshotTest {
         assertThat(RuleSnapshot.EMPTY.activeRules).isEmpty()
     }
 
+    // --- Purchase window ------------------------------------------------------
+
+    @Test
+    fun `a matched amount outside its bundle's window classifies as OutOfWindow`() {
+        val restricted = rule(1, 20, "1GB 1Hr")
+            .copy(purchaseWindow = PurchaseWindow(16 * 60, 22 * 60 + 59)) // 4:00 PM to 10:59 PM
+        val snapshot = RuleSnapshot.from(listOf(restricted))
+
+        val outcome = snapshot.classify(KshAmount.ofShillings(20), minuteOfDay = 10 * 60) // 10:00 AM
+
+        assertThat(outcome).isEqualTo(MatchOutcome.OutOfWindow(restricted))
+    }
+
+    @Test
+    fun `a matched amount inside its bundle's window still classifies as Matched`() {
+        val restricted = rule(1, 20, "1GB 1Hr")
+            .copy(purchaseWindow = PurchaseWindow(16 * 60, 22 * 60 + 59))
+        val snapshot = RuleSnapshot.from(listOf(restricted))
+
+        val outcome = snapshot.classify(KshAmount.ofShillings(20), minuteOfDay = 18 * 60) // 6:00 PM
+
+        assertThat(outcome).isEqualTo(MatchOutcome.Matched(restricted))
+    }
+
+    @Test
+    fun `a null minuteOfDay skips the window check entirely`() {
+        // Existing callers (mostly tests) that don't pass a minuteOfDay must see
+        // every match as in-window, exactly as before this feature existed.
+        val restricted = rule(1, 20, "1GB 1Hr")
+            .copy(purchaseWindow = PurchaseWindow(16 * 60, 22 * 60 + 59))
+        val snapshot = RuleSnapshot.from(listOf(restricted))
+
+        assertThat(snapshot.classify(KshAmount.ofShillings(20))).isEqualTo(MatchOutcome.Matched(restricted))
+    }
+
+    @Test
+    fun `an unrestricted bundle matches at any minute of the day`() {
+        // PurchaseWindow.DEFAULT is every rule's starting point — nothing already
+        // priced should ever classify as OutOfWindow by accident.
+        val snapshot = RuleSnapshot.from(priceList)
+
+        assertThat(snapshot.classify(KshAmount.ofShillings(20), minuteOfDay = 0))
+            .isInstanceOf(MatchOutcome.Matched::class.java)
+        assertThat(snapshot.classify(KshAmount.ofShillings(20), minuteOfDay = 1439))
+            .isInstanceOf(MatchOutcome.Matched::class.java)
+    }
+
     @Test
     fun `lookup is a map access, not a scan`() {
         // BUILD-PLAN Phase 3 asks for a benchmark-style check that matching is

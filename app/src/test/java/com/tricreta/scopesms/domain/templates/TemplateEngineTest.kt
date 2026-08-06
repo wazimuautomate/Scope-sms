@@ -5,6 +5,7 @@ import com.tricreta.scopesms.domain.money.KshAmount
 import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PricingRule
 import com.tricreta.scopesms.domain.rules.PurchaseLimit
+import com.tricreta.scopesms.domain.rules.PurchaseWindow
 import org.junit.Test
 
 /**
@@ -226,6 +227,56 @@ class TemplateEngineTest {
             .contains(TemplateVariable.PURCHASE_LIMIT)
         assertThat(TemplateVariable.allowedFor(TemplateType.UNMATCHED))
             .doesNotContain(TemplateVariable.PURCHASE_LIMIT)
+    }
+
+    // --- Off-window flow (matched a price, but outside the bundle's window) --
+
+    @Test
+    fun `off_window template substitutes the package and the window`() {
+        val body = "Hi {name}, {package} can only be purchased between {purchase_window}."
+
+        val rendered = TemplateEngine.render(
+            body,
+            TemplateEngine.offWindowValues(
+                name = "Skycope Bonke",
+                amount = KshAmount.ofShillings(19),
+                phone = "254700000000",
+                matchedRule = rule(2, 19, "1GB 1Hr")
+                    .copy(purchaseWindow = PurchaseWindow(16 * 60, 22 * 60 + 59)),
+            ),
+        )
+
+        assertThat(rendered).isEqualTo(
+            "Hi Skycope Bonke, 1GB 1Hr can only be purchased between 4:00 PM to 10:59 PM.",
+        )
+    }
+
+    @Test
+    fun `purchase_window is allowed in the off-window flow only`() {
+        assertThat(TemplateVariable.allowedFor(TemplateType.OFF_WINDOW))
+            .contains(TemplateVariable.PURCHASE_WINDOW)
+        assertThat(TemplateVariable.allowedFor(TemplateType.MATCHED))
+            .doesNotContain(TemplateVariable.PURCHASE_WINDOW)
+        assertThat(TemplateVariable.allowedFor(TemplateType.UNMATCHED))
+            .doesNotContain(TemplateVariable.PURCHASE_WINDOW)
+    }
+
+    @Test
+    fun `shipped off-window default renders cleanly`() {
+        val rendered = TemplateEngine.render(
+            DefaultTemplates.OFF_WINDOW,
+            TemplateEngine.offWindowValues(
+                name = "Skycope Bonke",
+                amount = KshAmount.ofShillings(19),
+                phone = "254700000000",
+                matchedRule = rule(2, 19, "1GB 1Hr")
+                    .copy(purchaseWindow = PurchaseWindow(16 * 60, 22 * 60 + 59)),
+            ),
+        )
+
+        assertThat(rendered).doesNotContain("{")
+        assertThat(rendered).contains("1GB 1Hr")
+        assertThat(rendered).contains("4:00 PM to 10:59 PM")
     }
 
     // --- Matched flow -------------------------------------------------------

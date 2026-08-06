@@ -26,8 +26,12 @@ class ReplyDecisionTest {
         bundleDescription = "2GB Weekly",
     )
 
-    private fun toggles(unmatched: Boolean, matched: Boolean) =
-        NotificationToggles(unmatchedReplyEnabled = unmatched, matchedReplyEnabled = matched)
+    private fun toggles(unmatched: Boolean, matched: Boolean, offWindow: Boolean = true) =
+        NotificationToggles(
+            unmatchedReplyEnabled = unmatched,
+            matchedReplyEnabled = matched,
+            offWindowReplyEnabled = offWindow,
+        )
 
     // --- Combination 1 of 4: both flows on -----------------------------------
 
@@ -87,10 +91,61 @@ class ReplyDecisionTest {
 
     @Test
     fun `both off - nothing sends on either flow`() {
-        val allOff = toggles(unmatched = false, matched = false)
+        val allOff = toggles(unmatched = false, matched = false, offWindow = false)
 
         assertEquals(ReplyDecision.Suppressed(TemplateType.MATCHED), decideReply(MatchOutcome.Matched(rule), allOff))
         assertEquals(ReplyDecision.Suppressed(TemplateType.UNMATCHED), decideReply(MatchOutcome.Unmatched, allOff))
+        assertTrue(allOff.allDisabled)
+    }
+
+    // --- The off-window flow, its own toggle ----------------------------------
+
+    @Test
+    fun `off-window toggle on - an out-of-window match sends the off-window flow`() {
+        val decision = decideReply(MatchOutcome.OutOfWindow(rule), toggles(unmatched = true, matched = true))
+
+        assertEquals(ReplyDecision.Send(TemplateType.OFF_WINDOW, rule), decision)
+        assertTrue(decision.willSend)
+    }
+
+    @Test
+    fun `off-window toggle off - an out-of-window match is suppressed, not dropped`() {
+        val decision = decideReply(
+            MatchOutcome.OutOfWindow(rule),
+            toggles(unmatched = true, matched = true, offWindow = false),
+        )
+
+        assertEquals(ReplyDecision.Suppressed(TemplateType.OFF_WINDOW), decision)
+        assertFalse(decision.willSend)
+    }
+
+    @Test
+    fun `an out-of-window match carries the rule so {package} and {purchase_window} can name it`() {
+        val decision = decideReply(MatchOutcome.OutOfWindow(rule), toggles(unmatched = true, matched = true))
+
+        assertEquals("2GB Weekly", decision.matchedRuleOrNull?.bundleDescription)
+    }
+
+    @Test
+    fun `the off-window toggle is independent of the other two`() {
+        // Matched and unmatched both off must not suppress an out-of-window
+        // reply — it is its own flow with its own switch.
+        val decision = decideReply(
+            MatchOutcome.OutOfWindow(rule),
+            toggles(unmatched = false, matched = false, offWindow = true),
+        )
+
+        assertTrue(decision.willSend)
+    }
+
+    @Test
+    fun `all three off - nothing sends on any flow`() {
+        val allOff = toggles(unmatched = false, matched = false, offWindow = false)
+
+        assertEquals(
+            ReplyDecision.Suppressed(TemplateType.OFF_WINDOW),
+            decideReply(MatchOutcome.OutOfWindow(rule), allOff),
+        )
         assertTrue(allOff.allDisabled)
     }
 
@@ -145,13 +200,17 @@ class ReplyDecisionTest {
     // --- Pins the shipped default, which is still unconfirmed ----------------
 
     @Test
-    fun `default toggles are unmatched-on matched-off`() {
-        // 🔴 memory.md open decision 4: this is BUILD-PLAN's recommendation, NOT
-        // a confirmed client answer. If the agent asks for something else, change
-        // NotificationToggles.DEFAULT and this test together — deliberately
-        // pinned so the change is a decision, not a drift.
+    fun `default toggles are unmatched-on matched-off off-window-on`() {
+        // 🔴 memory.md open decision 4: unmatched/matched are BUILD-PLAN's
+        // recommendation, NOT a confirmed client answer. If the agent asks for
+        // something else, change NotificationToggles.DEFAULT and this test
+        // together — deliberately pinned so the change is a decision, not a
+        // drift. offWindowReplyEnabled defaulting on is a separate, safe
+        // decision — see NotificationToggles.DEFAULT's doc comment: it cannot
+        // fire for any bundle until the agent sets a restricted window.
         assertTrue(NotificationToggles.DEFAULT.unmatchedReplyEnabled)
         assertFalse(NotificationToggles.DEFAULT.matchedReplyEnabled)
+        assertTrue(NotificationToggles.DEFAULT.offWindowReplyEnabled)
     }
 
     @Test
