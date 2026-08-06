@@ -15,7 +15,8 @@ data class GatewayCredentials(
 }
 
 /**
- * Where [ScopeSmsGateway] gets the credentials at call time.
+ * Where a gateway client ([BlazeTechGateway], [HostPinnacleGateway]) gets its
+ * credentials at call time.
  *
  * This is a **port, deliberately left unimplemented in Phase 5.** Storage is
  * still an open decision in `memory.md` (open decision 1): the obvious choice,

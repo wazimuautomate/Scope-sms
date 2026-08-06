@@ -19,13 +19,13 @@
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
-# --- Phase 5 — SCOPE SMS gateway client --------------------------------------
+# --- Phase 5 — SCOPE SMS gateway clients (BlazeTech + HostPinnacle) ----------
 #
-# Moshi reads the request/response models reflectively (see ScopeSmsGateway.create:
-# the KotlinJsonAdapterFactory route, chosen over codegen to avoid an unverified
-# Moshi-1.15.2-on-KSP2 dependency — see memory.md). Reflection means R8 cannot
-# see the field reads, so without these rules it renames `senderId` to `a` and
-# the gateway receives JSON it doesn't understand.
+# Moshi reads the request/response models reflectively (see BlazeTechGateway.create /
+# HostPinnacleGateway.create: the KotlinJsonAdapterFactory route, chosen over codegen
+# to avoid an unverified Moshi-1.15.2-on-KSP2 dependency — see memory.md). Reflection
+# means R8 cannot see the field reads, so without these rules it renames `senderId`
+# to `a` and the gateway receives JSON it doesn't understand.
 #
 # This breaks in release only. Every debug CI run stays green.
 -keep @androidx.annotation.Keep class com.tricreta.scopesms.network.** { *; }

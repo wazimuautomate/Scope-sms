@@ -38,7 +38,7 @@ data class ToneCheckResult(val issues: List<ToneIssue>) {
  * (a payment, a purchase). Safaricom's own content filter blocks messages
  * from a transactional sender ID that read like an advert. That block
  * happens at the network level: it is not a `SendFailure` this app's gateway
- * client can see or report (see `network/ScopeSmsGateway`), so by the time
+ * clients can see or report (see `network/BlazeTechGateway`/`network/HostPinnacleGateway`), so by the time
  * anyone notices, a customer simply never got their reply and there is
  * nothing in the activity log to explain why. This has to be caught in the
  * editor, before a template is ever saved — not diagnosed after the fact.
