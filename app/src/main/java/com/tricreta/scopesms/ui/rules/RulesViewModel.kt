@@ -12,6 +12,7 @@ import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.PriceListCodec
 import com.tricreta.scopesms.domain.rules.PricingRule
 import com.tricreta.scopesms.domain.rules.PurchaseLimit
+import com.tricreta.scopesms.domain.rules.PurchaseWindow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -69,6 +70,7 @@ data class RuleDraft(
     val isActive: Boolean = true,
     val category: BundleCategory = BundleCategory.DEFAULT,
     val purchaseLimit: PurchaseLimit = PurchaseLimit.DEFAULT,
+    val purchaseWindow: PurchaseWindow = PurchaseWindow.DEFAULT,
     val error: RuleInputError? = null,
 ) {
     val isNew: Boolean get() = id == 0L
@@ -109,6 +111,7 @@ class RulesViewModel(
             isActive = rule.isActive,
             category = rule.category,
             purchaseLimit = rule.purchaseLimit,
+            purchaseWindow = rule.purchaseWindow,
         )
     }
 
@@ -121,6 +124,7 @@ class RulesViewModel(
         description: String? = null,
         category: BundleCategory? = null,
         purchaseLimit: PurchaseLimit? = null,
+        purchaseWindow: PurchaseWindow? = null,
     ) {
         editing.update { draft ->
             draft?.copy(
@@ -128,6 +132,7 @@ class RulesViewModel(
                 description = description ?: draft.description,
                 category = category ?: draft.category,
                 purchaseLimit = purchaseLimit ?: draft.purchaseLimit,
+                purchaseWindow = purchaseWindow ?: draft.purchaseWindow,
                 // Clear as they type: an error that outlives the thing it was
                 // complaining about is just noise.
                 error = null,
@@ -170,6 +175,7 @@ class RulesViewModel(
                     isActive = draft.isActive,
                     category = draft.category,
                     purchaseLimit = draft.purchaseLimit,
+                    purchaseWindow = draft.purchaseWindow,
                 ),
             )
             editing.value = null
@@ -240,6 +246,7 @@ class RulesViewModel(
                             isActive = row.isActive,
                             category = row.category,
                             purchaseLimit = row.purchaseLimit,
+                            purchaseWindow = row.purchaseWindow,
                         ),
                     )
                     added++

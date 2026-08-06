@@ -17,6 +17,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.tricreta.scopesms.domain.money.KshAmount
 import com.tricreta.scopesms.domain.rules.PricingRule
+import com.tricreta.scopesms.domain.rules.PurchaseWindow
 import com.tricreta.scopesms.domain.templates.SmsSegments
 import com.tricreta.scopesms.domain.templates.TemplateEngine
 import com.tricreta.scopesms.domain.templates.TemplateType
@@ -117,6 +118,35 @@ class TemplatesScreenTest {
         )
     }
 
+    /** A bundle with a restricted window, matching the off-window flow's real use. */
+    private val restrictedRule = PricingRule(
+        id = 6,
+        amount = KshAmount.ofShillings(19),
+        bundleDescription = "1GB 1Hr",
+        purchaseWindow = PurchaseWindow(16 * 60, 22 * 60 + 59), // 4:00 PM to 10:59 PM
+    )
+
+    private fun offWindowEditor(body: String): TemplateEditorState {
+        val preview = TemplateEngine.render(
+            body,
+            TemplateEngine.offWindowValues(
+                name = "John Kamau",
+                amount = KshAmount.ofShillings(19),
+                phone = "0712345678",
+                matchedRule = restrictedRule,
+            ),
+        )
+        return TemplateEditorState(
+            type = TemplateType.OFF_WINDOW,
+            body = body,
+            savedBody = body,
+            preview = preview,
+            length = SmsSegments.measure(preview),
+            validation = TemplateEngine.validate(body, TemplateType.OFF_WINDOW),
+            isDefault = false,
+        )
+    }
+
     private fun stateWith(
         unmatchedBody: String =
             "Hi {name}, we received Ksh {amount} on {phone} but it does not match a bundle. " +
@@ -124,13 +154,17 @@ class TemplatesScreenTest {
         matchedBody: String =
             "Hi {name}, thank you for purchasing {package} for Ksh {amount}. " +
                 "It is being processed now.",
+        offWindowBody: String =
+            "Hi {name}, {package} can only be purchased between {purchase_window}. " +
+                "Your order is noted - no need to resend.",
     ) = TemplatesUiState(
         unmatched = unmatchedEditor(unmatchedBody),
         matched = matchedEditor(matchedBody),
+        offWindow = offWindowEditor(offWindowBody),
     )
 
     @Test
-    fun rendersBothTabsWithRealisticData() {
+    fun rendersAllThreeTabsWithRealisticData() {
         compose.setContent {
             ScopeSmsTheme { TemplatesContent(state = stateWith()) }
         }
@@ -143,6 +177,25 @@ class TemplatesScreenTest {
         // necessarily displayed, so assert existence, not visibility.
         compose.onNodeWithText("Price list reply").assertIsDisplayed()
         compose.onNodeWithText("Purchase confirmation").assertIsDisplayed()
+        compose.onNodeWithText("Outside buying hours").assertIsDisplayed()
+        compose.onNodeWithText("Preview").assertExists()
+    }
+
+    /**
+     * The third tab, added for the bundle purchase-window feature. This exact
+     * kind of change — a new tab appended to [TemplateType.entries] — is what
+     * regressed the saved-tab-index crash this file exists to catch (see the
+     * class doc), so it gets its own explicit switch-and-render exercise
+     * rather than relying on the two-tab tests above to catch a three-tab bug.
+     */
+    @Test
+    fun switchingToOffWindowTabRenders() {
+        compose.setContent {
+            ScopeSmsTheme { TemplatesContent(state = stateWith()) }
+        }
+        compose.onNodeWithText("Outside buying hours").performClick()
+        compose.waitForIdle()
+
         compose.onNodeWithText("Preview").assertExists()
     }
 

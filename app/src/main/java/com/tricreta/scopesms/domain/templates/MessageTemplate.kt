@@ -1,7 +1,7 @@
 package com.tricreta.scopesms.domain.templates
 
 /**
- * The two independently-toggleable reply flows (CLAUDE.md, "What this app is").
+ * The three independently-toggleable reply flows (CLAUDE.md, "What this app is").
  */
 enum class TemplateType {
 
@@ -19,6 +19,15 @@ enum class TemplateType {
      * deliverability/ban risk with SMS gateways.
      */
     MATCHED,
+
+    /**
+     * The payment matched a bundle price, but arrived outside that bundle's
+     * purchase window (see [com.tricreta.scopesms.domain.rules.PurchaseWindow]).
+     * Reassure the customer their order is noted rather than confirming a
+     * purchase Safaricom won't actually fulfil yet, and without asking them to
+     * resend — they already paid.
+     */
+    OFF_WINDOW,
 }
 
 /**
@@ -78,6 +87,15 @@ enum class TemplateVariable(val token: String) {
      */
     PURCHASE_LIMIT("{purchase_limit}"),
 
+    /**
+     * The matched bundle's purchase window, e.g. "4:00 PM to 10:59 PM" — always
+     * non-blank, so the agent can build a sentence around it
+     * ("{package} can only be purchased between {purchase_window}.") the same
+     * way they would around [PACKAGE]. Off-window flow only: it only means
+     * something for the bundle whose window the payment missed.
+     */
+    PURCHASE_WINDOW("{purchase_window}"),
+
     ;
 
     companion object {
@@ -101,6 +119,8 @@ enum class TemplateVariable(val token: String) {
                 )
             TemplateType.MATCHED ->
                 setOf(NAME, FIRST_NAME, LAST_NAME, AMOUNT, PHONE, PACKAGE, PURCHASE_LIMIT)
+            TemplateType.OFF_WINDOW ->
+                setOf(NAME, FIRST_NAME, LAST_NAME, AMOUNT, PHONE, PACKAGE, PURCHASE_WINDOW)
         }
 
         /** Every `{token}`-shaped run in [body], recognised or not. */
@@ -136,7 +156,7 @@ data class MessageTemplate(
 )
 
 /**
- * The text both flows ship with.
+ * The text all three flows ship with.
  *
  * Rules are deliberately *not* seeded (BUILD-PLAN Phase 3: prompt the agent,
  * assume nothing) — but templates are, and the asymmetry is intentional. An
@@ -146,7 +166,7 @@ data class MessageTemplate(
  * sensible default price list, but there is a sensible default sentence.
  *
  * Kept short on purpose: every wrapped segment is money out of the agent's
- * pocket (see [SmsSegments]). Both fit one GSM-7 segment once rendered with
+ * pocket (see [SmsSegments]). Each fits one GSM-7 segment once rendered with
  * typical values — the unmatched one plus a short price list will spill to two,
  * which is why the Phase 7 editor shows a live segment count.
  */
@@ -162,9 +182,14 @@ object DefaultTemplates {
         Hi {name}, thank you for buying {package} for Ksh {amount}. It is being processed now.
     """.trimIndent()
 
+    val OFF_WINDOW = """
+        Hi {name}, thank you for sending Ksh {amount}. {package} can only be purchased between {purchase_window}. Your order is noted - you will receive it automatically once that window opens, no need to resend.
+    """.trimIndent()
+
     fun bodyFor(type: TemplateType): String = when (type) {
         TemplateType.UNMATCHED -> UNMATCHED
         TemplateType.MATCHED -> MATCHED
+        TemplateType.OFF_WINDOW -> OFF_WINDOW
     }
 
     fun templateFor(type: TemplateType): MessageTemplate =

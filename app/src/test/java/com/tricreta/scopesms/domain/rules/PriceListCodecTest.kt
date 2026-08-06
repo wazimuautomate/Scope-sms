@@ -150,4 +150,96 @@ class PriceListCodecTest {
         val loaded = (PriceListCodec.import(json) as PriceListCodec.ImportResult.Loaded).rules
         assertThat(loaded.all { it.purchaseLimit == PurchaseLimit.DEFAULT }).isTrue()
     }
+
+    // --- Purchase window ------------------------------------------------------
+
+    @Test
+    fun `purchase window round-trips through export and import`() {
+        val restricted = listOf(
+            PricingRule(
+                1,
+                KshAmount.ofShillings(19),
+                "1GB 1Hr",
+                purchaseWindow = PurchaseWindow(16 * 60, 22 * 60 + 59),
+            ),
+        )
+        val loaded = (
+            PriceListCodec.import(PriceListCodec.export(restricted, now = 0))
+                as PriceListCodec.ImportResult.Loaded
+            ).rules
+
+        assertThat(loaded.single().purchaseWindow).isEqualTo(PurchaseWindow(16 * 60, 22 * 60 + 59))
+    }
+
+    @Test
+    fun `a file with an explicit all-day window round-trips as all-day`() {
+        val allDay = listOf(PricingRule(1, KshAmount.ofShillings(20), "1GB Daily"))
+        val loaded = (
+            PriceListCodec.import(PriceListCodec.export(allDay, now = 0))
+                as PriceListCodec.ImportResult.Loaded
+            ).rules
+
+        assertThat(loaded.single().purchaseWindow).isEqualTo(PurchaseWindow.DEFAULT)
+    }
+
+    @Test
+    fun `a file with no window keys at all defaults to all-day`() {
+        // An older export, or a hand-written file, simply omits the keys.
+        val json = """
+            {
+              "scope_sms_prices": 1,
+              "prices": [ { "amount": 20, "bundle": "1GB Daily" } ]
+            }
+        """.trimIndent()
+        val loaded = (PriceListCodec.import(json) as PriceListCodec.ImportResult.Loaded).rules
+
+        assertThat(loaded.single().purchaseWindow).isEqualTo(PurchaseWindow.DEFAULT)
+        assertThat(loaded.single().purchaseWindow.isAllDay).isTrue()
+    }
+
+    @Test
+    fun `a file with only one of the two window keys defaults to all-day rather than throwing`() {
+        val json = """
+            {
+              "scope_sms_prices": 1,
+              "prices": [
+                { "amount": 20, "bundle": "1GB Daily", "window_start_minute": 960 }
+              ]
+            }
+        """.trimIndent()
+        val loaded = (PriceListCodec.import(json) as PriceListCodec.ImportResult.Loaded).rules
+
+        assertThat(loaded.single().purchaseWindow).isEqualTo(PurchaseWindow.DEFAULT)
+    }
+
+    @Test
+    fun `a file with an out-of-range window value defaults to all-day rather than crashing`() {
+        val json = """
+            {
+              "scope_sms_prices": 1,
+              "prices": [
+                { "amount": 20, "bundle": "1GB Daily", "window_start_minute": 9999, "window_end_minute": 100 }
+              ]
+            }
+        """.trimIndent()
+        val loaded = (PriceListCodec.import(json) as PriceListCodec.ImportResult.Loaded).rules
+
+        assertThat(loaded.single().purchaseWindow).isEqualTo(PurchaseWindow.DEFAULT)
+    }
+
+    @Test
+    fun `the exported window is written in minutes, not a time string`() {
+        val restricted = listOf(
+            PricingRule(
+                1,
+                KshAmount.ofShillings(19),
+                "1GB 1Hr",
+                purchaseWindow = PurchaseWindow(16 * 60, 22 * 60 + 59),
+            ),
+        )
+        val json = PriceListCodec.export(restricted, now = 0)
+
+        assertThat(json).contains("\"window_start_minute\": 960")
+        assertThat(json).contains("\"window_end_minute\": 1379")
+    }
 }

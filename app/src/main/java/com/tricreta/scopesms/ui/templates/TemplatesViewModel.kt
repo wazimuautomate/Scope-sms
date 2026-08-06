@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.tricreta.scopesms.di.AppContainer
 import com.tricreta.scopesms.domain.money.KshAmount
 import com.tricreta.scopesms.domain.rules.PricingRule
+import com.tricreta.scopesms.domain.rules.PurchaseWindow
 import com.tricreta.scopesms.domain.templates.DefaultTemplates
 import com.tricreta.scopesms.domain.templates.PromotionalToneChecker
 import com.tricreta.scopesms.domain.templates.SmsLength
@@ -45,10 +46,12 @@ data class TemplateEditorState(
 data class TemplatesUiState(
     val unmatched: TemplateEditorState = TemplateEditorState(TemplateType.UNMATCHED),
     val matched: TemplateEditorState = TemplateEditorState(TemplateType.MATCHED),
+    val offWindow: TemplateEditorState = TemplateEditorState(TemplateType.OFF_WINDOW),
 ) {
     fun forType(type: TemplateType): TemplateEditorState = when (type) {
         TemplateType.UNMATCHED -> unmatched
         TemplateType.MATCHED -> matched
+        TemplateType.OFF_WINDOW -> offWindow
     }
 }
 
@@ -80,6 +83,7 @@ class TemplatesViewModel(
         TemplatesUiState(
             unmatched = editorFor(TemplateType.UNMATCHED, templates, edits, activeRules),
             matched = editorFor(TemplateType.MATCHED, templates, edits, activeRules),
+            offWindow = editorFor(TemplateType.OFF_WINDOW, templates, edits, activeRules),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), TemplatesUiState())
 
@@ -137,6 +141,19 @@ class TemplatesViewModel(
             phone = SAMPLE_PHONE,
             matchedRule = activeRules.firstOrNull() ?: SAMPLE_RULE,
         )
+
+        // {purchase_window} preview: the agent's real first bundle when one
+        // exists (its real window, whatever it is), or a bundle with a
+        // deliberately restricted window when there are none yet — a fresh
+        // install's bundles are all unrestricted by default, and previewing
+        // "12:00 AM to 11:59 PM" would be a confusing stand-in for what this
+        // flow is actually about.
+        TemplateType.OFF_WINDOW -> TemplateEngine.offWindowValues(
+            name = SAMPLE_NAME,
+            amount = activeRules.firstOrNull()?.amount ?: KshAmount.ofShillings(SAMPLE_AMOUNT),
+            phone = SAMPLE_PHONE,
+            matchedRule = activeRules.firstOrNull() ?: SAMPLE_OFF_WINDOW_RULE,
+        )
     }
 
     fun edit(type: TemplateType, body: String) {
@@ -189,6 +206,14 @@ class TemplatesViewModel(
             id = 0,
             amount = KshAmount.ofShillings(SAMPLE_AMOUNT),
             bundleDescription = "2GB Weekly",
+        )
+
+        /** A representative restricted bundle, so the off-window preview is never blank. */
+        private val SAMPLE_OFF_WINDOW_RULE = PricingRule(
+            id = 0,
+            amount = KshAmount.ofShillings(SAMPLE_AMOUNT),
+            bundleDescription = "2GB Weekly",
+            purchaseWindow = PurchaseWindow(16 * 60, 22 * 60 + 59), // 4:00 PM to 10:59 PM
         )
 
         val Factory: ViewModelProvider.Factory = viewModelFactory {

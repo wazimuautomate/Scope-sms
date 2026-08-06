@@ -140,6 +140,10 @@ class SettingsViewModel(
         viewModelScope.launch { container.settings.setMatchedReplyEnabled(enabled) }
     }
 
+    fun setOffWindowEnabled(enabled: Boolean) {
+        viewModelScope.launch { container.settings.setOffWindowReplyEnabled(enabled) }
+    }
+
     fun setThemePreference(preference: ThemePreference) {
         viewModelScope.launch { container.settings.setThemePreference(preference) }
     }

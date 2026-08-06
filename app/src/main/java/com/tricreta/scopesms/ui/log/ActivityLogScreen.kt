@@ -519,6 +519,7 @@ private fun MatchType.label(): String = stringResource(
         MatchType.MATCHED -> R.string.match_matched
         MatchType.UNMATCHED -> R.string.match_unmatched
         MatchType.NO_RULES_CONFIGURED -> R.string.match_no_rules
+        MatchType.OFF_WINDOW -> R.string.match_off_window
     },
 )
 

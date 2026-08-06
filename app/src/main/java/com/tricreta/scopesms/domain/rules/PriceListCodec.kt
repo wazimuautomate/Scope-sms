@@ -45,12 +45,15 @@ object PriceListCodec {
     private const val ACTIVE_KEY = "active"
     private const val CATEGORY_KEY = "category"
     private const val PURCHASE_LIMIT_KEY = "purchase_limit"
+    private const val WINDOW_START_MINUTE_KEY = "window_start_minute"
+    private const val WINDOW_END_MINUTE_KEY = "window_end_minute"
 
-    // Stays 1 even though `category` (and later `purchase_limit`) were added:
-    // both are *optional* fields. An older app ignores them and still imports
-    // the prices; this app defaults a file without them to BundleCategory.DEFAULT
-    // / PurchaseLimit.DEFAULT. Bumping the version would make the old app reject
-    // the file outright — the worse outcome for the agent's data.
+    // Stays 1 even though `category`, `purchase_limit` (and now the purchase
+    // window) were added: all are *optional* fields. An older app ignores them
+    // and still imports the prices; this app defaults a file without them to
+    // BundleCategory.DEFAULT / PurchaseLimit.DEFAULT / PurchaseWindow.DEFAULT.
+    // Bumping the version would make the old app reject the file outright — the
+    // worse outcome for the agent's data.
     private const val CURRENT_VERSION = 1
 
     /**
@@ -73,7 +76,9 @@ object PriceListCodec {
                     .put(BUNDLE_KEY, rule.bundleDescription)
                     .put(ACTIVE_KEY, rule.isActive)
                     .put(CATEGORY_KEY, rule.category.name)
-                    .put(PURCHASE_LIMIT_KEY, rule.purchaseLimit.name),
+                    .put(PURCHASE_LIMIT_KEY, rule.purchaseLimit.name)
+                    .put(WINDOW_START_MINUTE_KEY, rule.purchaseWindow.startMinute)
+                    .put(WINDOW_END_MINUTE_KEY, rule.purchaseWindow.endMinute),
             )
         }
 
@@ -112,6 +117,7 @@ object PriceListCodec {
         val isActive: Boolean,
         val category: BundleCategory,
         val purchaseLimit: PurchaseLimit,
+        val purchaseWindow: PurchaseWindow,
     )
 
     /**
@@ -160,11 +166,30 @@ object PriceListCodec {
                         purchaseLimit = PurchaseLimit.fromName(
                             row.optString(PURCHASE_LIMIT_KEY).ifBlank { null },
                         ),
+                        purchaseWindow = purchaseWindowFrom(row),
                     ),
                 )
             }
         }
 
         return ImportResult.Loaded(rules)
+    }
+
+    /**
+     * Reads a bundle's purchase window from an import row.
+     *
+     * Absent, partial (only one of the two keys), or out-of-range values all
+     * degrade to [PurchaseWindow.DEFAULT] rather than throwing — an older file,
+     * a hand-edited one, or one truncated mid-write all land here, same
+     * convention as [BundleCategory.fromName]/[PurchaseLimit.fromName].
+     */
+    private fun purchaseWindowFrom(row: JSONObject): PurchaseWindow {
+        if (!row.has(WINDOW_START_MINUTE_KEY) || !row.has(WINDOW_END_MINUTE_KEY)) return PurchaseWindow.DEFAULT
+
+        val start = row.optInt(WINDOW_START_MINUTE_KEY, -1)
+        val end = row.optInt(WINDOW_END_MINUTE_KEY, -1)
+        if (start !in 0..1439 || end !in 0..1439) return PurchaseWindow.DEFAULT
+
+        return PurchaseWindow(start, end)
     }
 }

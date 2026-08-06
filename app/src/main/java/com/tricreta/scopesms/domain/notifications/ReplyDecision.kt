@@ -7,7 +7,7 @@ import com.tricreta.scopesms.domain.templates.TemplateType
 /**
  * What should happen to one classified payment.
  *
- * Phase 6. This is the single place the two toggles are applied, sitting between
+ * Phase 6. This is the single place the toggles are applied, sitting between
  * the rules engine (Phase 3, which says *what the payment is*) and the outbound
  * queue (Phase 5b, which says *how a reply gets sent*). Neither of those two
  * knows about the toggles, and that separation is why this is a pure function
@@ -28,8 +28,9 @@ sealed interface ReplyDecision {
      * Enqueue a reply on [flow].
      *
      * @param matchedRule the rule the payment matched — non-null exactly when
-     *   [flow] is [TemplateType.MATCHED], because `{package}` has to name
-     *   something and only the matched flow has a rule to name.
+     *   [flow] is [TemplateType.MATCHED] or [TemplateType.OFF_WINDOW], because
+     *   `{package}` (and, for off-window, `{purchase_window}`) has to name
+     *   something and only those two flows have a rule to name.
      */
     data class Send(
         override val flow: TemplateType,
@@ -66,9 +67,9 @@ sealed interface ReplyDecision {
  *
  * Pure, total, and synchronous: no I/O, no Android types, safe from the binder
  * thread the SMS receiver runs on (CLAUDE.md constraint 5). The `when` is
- * exhaustive over [MatchOutcome]'s three arms, so a fourth arm added later
- * fails the build here rather than silently falling through to "send nothing" —
- * which is the failure mode that would cost the agent customers quietly.
+ * exhaustive over [MatchOutcome]'s arms, so a new arm added later fails the
+ * build here rather than silently falling through to "send nothing" — which is
+ * the failure mode that would cost the agent customers quietly.
  */
 fun decideReply(outcome: MatchOutcome, toggles: NotificationToggles): ReplyDecision =
     when (outcome) {
@@ -84,6 +85,13 @@ fun decideReply(outcome: MatchOutcome, toggles: NotificationToggles): ReplyDecis
                 ReplyDecision.Send(TemplateType.MATCHED, outcome.rule)
             } else {
                 ReplyDecision.Suppressed(TemplateType.MATCHED)
+            }
+
+        is MatchOutcome.OutOfWindow ->
+            if (toggles.offWindowReplyEnabled) {
+                ReplyDecision.Send(TemplateType.OFF_WINDOW, outcome.rule)
+            } else {
+                ReplyDecision.Suppressed(TemplateType.OFF_WINDOW)
             }
 
         MatchOutcome.Unmatched ->

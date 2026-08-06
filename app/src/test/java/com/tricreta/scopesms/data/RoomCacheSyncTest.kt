@@ -10,6 +10,7 @@ import com.tricreta.scopesms.domain.rules.BundleCategory
 import com.tricreta.scopesms.domain.rules.MatchOutcome
 import com.tricreta.scopesms.domain.rules.PricingRule
 import com.tricreta.scopesms.domain.rules.PurchaseLimit
+import com.tricreta.scopesms.domain.rules.PurchaseWindow
 import com.tricreta.scopesms.domain.rules.RuleCache
 import com.tricreta.scopesms.domain.rules.RuleSnapshot
 import com.tricreta.scopesms.domain.templates.TemplateCache
@@ -181,6 +182,28 @@ class RoomCacheSyncTest {
 
         assertThat(stored.category).isEqualTo(BundleCategory.DATA)
         assertThat(stored.purchaseLimit).isEqualTo(PurchaseLimit.ONCE_PER_DAY)
+    }
+
+    @Test
+    fun `a restricted purchase window survives the round trip`() = runBlocking<Unit> {
+        val window = PurchaseWindow(16 * 60, 22 * 60 + 59) // 4:00 PM to 10:59 PM
+        rules.upsert(
+            PricingRule(0, KshAmount.ofShillings(19), "1GB 1Hr", purchaseWindow = window),
+        )
+
+        val stored = rules.getAll().single()
+
+        assertThat(stored.purchaseWindow).isEqualTo(window)
+    }
+
+    @Test
+    fun `a rule saved with no purchase window round-trips as all-day`() = runBlocking<Unit> {
+        rules.upsert(PricingRule(0, KshAmount.ofShillings(20), "1GB Daily"))
+
+        val stored = rules.getAll().single()
+
+        assertThat(stored.purchaseWindow).isEqualTo(PurchaseWindow.DEFAULT)
+        assertThat(stored.purchaseWindow.isAllDay).isTrue()
     }
 
     @Test

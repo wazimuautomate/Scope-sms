@@ -40,9 +40,9 @@ import com.tricreta.scopesms.domain.templates.TemplateVariable
 import com.tricreta.scopesms.domain.templates.ToneIssueCategory
 
 /**
- * The two reply bodies, each with its own variable chips and live preview.
+ * The three reply bodies, each with its own variable chips and live preview.
  *
- * Two tabs rather than one screen with a type dropdown: the messages say
+ * Tabs rather than one screen with a type dropdown: the messages say
  * different things to different people, and BUILD-PLAN Phase 7 asks for them to
  * be visibly separate so the agent can't edit one thinking it's the other.
  */
@@ -117,6 +117,7 @@ fun TemplatesContent(
                                 when (entry) {
                                     TemplateType.UNMATCHED -> R.string.tpl_tab_unmatched
                                     TemplateType.MATCHED -> R.string.tpl_tab_matched
+                                    TemplateType.OFF_WINDOW -> R.string.tpl_tab_off_window
                                 },
                             ),
                         )
@@ -136,6 +137,7 @@ fun TemplatesContent(
                     when (type) {
                         TemplateType.UNMATCHED -> R.string.tpl_unmatched_explainer
                         TemplateType.MATCHED -> R.string.tpl_matched_explainer
+                        TemplateType.OFF_WINDOW -> R.string.tpl_off_window_explainer
                     },
                 ),
                 style = MaterialTheme.typography.bodyMedium,

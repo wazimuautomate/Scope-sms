@@ -105,6 +105,7 @@ fun SettingsScreen(
             toggles = state.toggles,
             onUnmatchedChange = viewModel::setUnmatchedEnabled,
             onMatchedChange = viewModel::setMatchedEnabled,
+            onOffWindowChange = viewModel::setOffWindowEnabled,
         )
 
         HorizontalDivider()
@@ -264,18 +265,19 @@ private fun CrashReportCard(onShare: () -> Unit, onDismiss: () -> Unit) {
 }
 
 /**
- * The two independent reply flows, moved here from Home.
+ * The three independent reply flows, moved here from Home.
  *
  * They are the agent's throttle on sender-ID ban risk (CLAUDE.md, "What this app
  * is"): confirmations are higher-volume, so the agent turns that flow off on a
- * busy day. An empty rule list overrides both anyway, so leaving them on before
- * prices are entered sends nothing.
+ * busy day. An empty rule list overrides all three anyway, so leaving them on
+ * before prices are entered sends nothing.
  */
 @Composable
 private fun RepliesSection(
     toggles: com.tricreta.scopesms.domain.notifications.NotificationToggles,
     onUnmatchedChange: (Boolean) -> Unit,
     onMatchedChange: (Boolean) -> Unit,
+    onOffWindowChange: (Boolean) -> Unit,
 ) {
     ToggleRow(
         title = stringResource(R.string.toggle_unmatched_title),
@@ -288,6 +290,12 @@ private fun RepliesSection(
         subtitle = stringResource(R.string.toggle_matched_subtitle),
         checked = toggles.matchedReplyEnabled,
         onCheckedChange = onMatchedChange,
+    )
+    ToggleRow(
+        title = stringResource(R.string.toggle_off_window_title),
+        subtitle = stringResource(R.string.toggle_off_window_subtitle),
+        checked = toggles.offWindowReplyEnabled,
+        onCheckedChange = onOffWindowChange,
     )
 }
 

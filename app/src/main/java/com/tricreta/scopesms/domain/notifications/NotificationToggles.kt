@@ -33,10 +33,18 @@ data class NotificationToggles(
      * deliverability/ban risk with SMS gateways.
      */
     val matchedReplyEnabled: Boolean,
+
+    /**
+     * Reply when a payment matches a bundle price but arrives outside that
+     * bundle's purchase window (see
+     * [com.tricreta.scopesms.domain.rules.PurchaseWindow]).
+     */
+    val offWindowReplyEnabled: Boolean,
 ) {
 
-    /** True when the agent has switched both flows off — a valid, supported state. */
-    val allDisabled: Boolean get() = !unmatchedReplyEnabled && !matchedReplyEnabled
+    /** True when the agent has switched every flow off — a valid, supported state. */
+    val allDisabled: Boolean
+        get() = !unmatchedReplyEnabled && !matchedReplyEnabled && !offWindowReplyEnabled
 
     companion object {
 
@@ -63,10 +71,21 @@ data class NotificationToggles(
          *
          * If the agent says otherwise, change these two lines and the four tests
          * in `NotificationTogglesTest` that pin them.
+         *
+         * [offWindowReplyEnabled] defaults to `true` — unlike [matchedReplyEnabled]'s
+         * cautious `false` — because this flow is structurally incapable of firing
+         * until the agent explicitly sets a restricted window on some bundle:
+         * every bundle defaults to [com.tricreta.scopesms.domain.rules.PurchaseWindow.DEFAULT]
+         * (all day, every day), so [MatchOutcome.OutOfWindow][com.tricreta.scopesms.domain.rules.MatchOutcome.OutOfWindow]
+         * cannot be produced for any bundle the agent hasn't touched. Defaulting
+         * it on therefore changes nothing for any existing agent, and it means an
+         * agent who *does* set a window gets the reassurance reply immediately
+         * without a second setup step to discover.
          */
         val DEFAULT = NotificationToggles(
             unmatchedReplyEnabled = true,
             matchedReplyEnabled = false,
+            offWindowReplyEnabled = true,
         )
     }
 }

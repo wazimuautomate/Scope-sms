@@ -82,8 +82,8 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
      * Which reply flows are switched on. Emits the current value immediately,
      * then on every change.
      *
-     * Phase 6. Both keys are read from one `Preferences` snapshot, so the pair is
-     * always internally consistent — see [NotificationToggles].
+     * Phase 6. All three keys are read from one `Preferences` snapshot, so the
+     * set is always internally consistent — see [NotificationToggles].
      */
     val notificationToggles: Flow<NotificationToggles> = dataStore.data
         .safe()
@@ -93,6 +93,8 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
                     ?: NotificationToggles.DEFAULT.unmatchedReplyEnabled,
                 matchedReplyEnabled = prefs[KEY_MATCHED_REPLY_ENABLED]
                     ?: NotificationToggles.DEFAULT.matchedReplyEnabled,
+                offWindowReplyEnabled = prefs[KEY_OFF_WINDOW_REPLY_ENABLED]
+                    ?: NotificationToggles.DEFAULT.offWindowReplyEnabled,
             )
         }
         .onEach { cachedToggles = it }
@@ -184,6 +186,11 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[KEY_MATCHED_REPLY_ENABLED] = enabled }
     }
 
+    suspend fun setOffWindowReplyEnabled(enabled: Boolean) {
+        cachedToggles = currentNotificationToggles().copy(offWindowReplyEnabled = enabled)
+        dataStore.edit { it[KEY_OFF_WINDOW_REPLY_ENABLED] = enabled }
+    }
+
     /**
      * Survive a corrupt or unreadable preferences file by falling back to
      * defaults.
@@ -225,6 +232,11 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         // as "the agent switched this off".
         private val KEY_UNMATCHED_REPLY_ENABLED = booleanPreferencesKey("unmatched_reply_enabled")
         private val KEY_MATCHED_REPLY_ENABLED = booleanPreferencesKey("matched_reply_enabled")
+
+        // The bundle purchase-window feature's third flow. Absent means "never
+        // set" and falls back to NotificationToggles.DEFAULT (true) — same
+        // convention as the two keys above, not `?: false`.
+        private val KEY_OFF_WINDOW_REPLY_ENABLED = booleanPreferencesKey("off_window_reply_enabled")
 
         // Battery-optimisation exemption is deliberately NOT stored here, even
         // though CLAUDE.md's architecture section lists it among the settings.
