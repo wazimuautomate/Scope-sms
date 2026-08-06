@@ -43,12 +43,14 @@ Full phased implementation plan: `02-BUILD-PLAN.md`.
 2. **Reading is local and offline; sending is online via SMS gateway.**
    The app still reads M-Pesa SMS entirely on-device (no network call in
    that path). But it is **no longer offline-first overall** — outbound
-   replies require internet connectivity to reach
-   `https://sms.blazetechscope.com/v1/`. `INTERNET` permission is required.
-   Design for the case where the phone has no data connection *at the
-   moment* a payment SMS arrives: the decision (matched/unmatched, which
-   template) must still be made instantly and durably queued for sending —
-   never silently dropped, never blocking on network inside the receiver.
+   replies require internet connectivity to reach whichever gateway is
+   currently active (`https://sms.blazetechscope.com/v1/` for BlazeTech,
+   `https://smsportal.hostpinnacle.co.ke/SMSApi/` for HostPinnacle — see "SMS
+   Gateway Integration" below). `INTERNET` permission is required. Design for
+   the case where the phone has no data connection *at the moment* a payment
+   SMS arrives: the decision (matched/unmatched, which template) must still
+   be made instantly and durably queued for sending — never silently
+   dropped, never blocking on network inside the receiver.
 3. **No `SEND_SMS` permission, no `SmsManager` sending.** All outbound
    messages go through the SCOPE SMS API using a sender ID. This removes
    the entire "send via correct SIM subscription" problem from earlier
@@ -118,12 +120,39 @@ Full phased implementation plan: `02-BUILD-PLAN.md`.
   package is now ingestion-only (no sending); `network/` is new and owns all
   gateway communication.
 
-## SMS Gateway Integration (SCOPE SMS API)
+## SMS Gateway Integration — two gateways, dropdown-selectable
+
+The app supports **two independently-selectable SMS gateways**: BlazeTech
+(the original "SCOPE SMS API" integration, live in production) and
+HostPinnacle (added later, at the client's request, to switch providers
+*without* removing BlazeTech — an agent depends on BlazeTech for their
+livelihood, so it must keep working exactly as before regardless of which
+gateway is added). Settings has a dropdown (`GatewayProvider`: `BLAZETECH` /
+`HOSTPINNACLE`, default `BLAZETECH`) that picks the active one; each provider
+has its **own API key + sender ID**, entered and saved independently
+(`data/settings/GatewayCredentialsStore`, provider-scoped) — switching the
+dropdown never loses or overwrites the other provider's saved credentials.
+Both gateway clients implement one `network/SmsGateway` interface and share
+one response-interpretation function (`network/SendSmsResponseInterpreter`),
+since both providers' send responses are verified to be the same shape.
+
+A queued job remembers which provider it was created under
+(`queue/OutboundJob.provider`, nullable — `null` for every job queued before
+this feature existed, decoding to `BLAZETECH`) and always sends through
+*that* provider, never "whichever is active now": a job's sender ID was
+registered with one specific gateway account, so routing it through the
+other provider live would almost certainly fail with an unregistered-sender
+error even though nothing else about the job changed.
+
+### BlazeTech (`network/BlazeTechGateway`, `network/ScopeSmsApi`)
 - Base URL: `https://sms.blazetechscope.com/v1/`
-- `POST /sendsms` — single message: `{ message, phone, sender_id, api_key }`.
-  Success: `response-code: 200` with `messageid`. Phone format: local
-  `07XXXXXXXX`/`01XXXXXXXX` (docs say international `254...` is also
-  accepted and converted).
+- `POST /sendsms` — JSON body: `{ message, phone, sender_id, api_key }`.
+  Documented success: `response-code: 200` with `messageid`. The **live**
+  gateway actually answers `{"status":"success","statusCode":"200",...}`
+  instead — see `SendSmsResponseInterpreter`, which checks for either shape.
+  Phone format: local `07XXXXXXXX`/`01XXXXXXXX` (docs say international
+  `254...` is also accepted and converted; the app converts explicitly via
+  `PhoneNumbers.toLocalFormat` rather than depending on that).
 - `POST /bulksms` exists (`phones` array + one shared `message`) but is
   **not a fit for this app's core flows**, since both unmatched and matched
   replies are personalized per recipient (different name/amount/bundle) —
@@ -131,19 +160,40 @@ Full phased implementation plan: `02-BUILD-PLAN.md`.
   broadcast feature is explicitly requested later.
 - `POST /smsstatus` — optional delivery-status check by `message_id`; treat
   as a nice-to-have for the activity log, not a blocker for MVP.
-- Rate limit: 100 requests/minute per API key. The burst requirement (10 SMS
-  in 1–3 seconds) is well under this in isolated bursts, but the queue
-  worker must still handle `429 Too Many Requests` gracefully (backoff +
-  retry, not a dropped message) in case of a busier sustained period.
-- Error handling: map documented HTTP codes (400/401/403/429/500) and the
-  documented error-message bodies (invalid API key, insufficient balance,
-  invalid phone, invalid/unregistered sender ID) to distinct, loggable
-  failure reasons in the activity log — "send failed" alone is not
-  sufficient for the agent to diagnose an issue.
-- Sender ID must be pre-registered with SCOPE before it will work — this is
-  an account-setup prerequisite on the client's side, not something the app
-  can fix. Settings should surface a clear error if the gateway reports an
-  unregistered sender ID, rather than retrying forever.
+- Rate limit: 100 requests/minute per API key.
+
+### HostPinnacle (`network/HostPinnacleGateway`, `network/HostPinnacleApi`)
+- Base URL: `https://smsportal.hostpinnacle.co.ke/SMSApi/`
+- `POST send` — **`application/x-www-form-urlencoded`**, not JSON (the
+  single biggest wire-format difference from BlazeTech). Auth is the
+  `apikey` HTTP header (this app only ever uses HostPinnacle's apikey auth
+  mode, never userid/password). Form fields: `mobile` (recipient,
+  **international format with country code, no leading `+`**, e.g.
+  `254712345678` — the opposite of BlazeTech's local format, hence
+  `PhoneNumbers.toInternationalFormat`), `msg`, `senderid`,
+  `sendMethod=quick`, `msgType=text`, `duplicatecheck=true`, `output=json`.
+- Response shape is verified **byte-for-byte the same** as BlazeTech's live
+  shape (`status`/`mobile`/`invalidMobile`/`transactionId`/`statusCode`/
+  `reason`) — `SendSmsResponse` and `SendSmsResponseInterpreter` are reused
+  as-is, not duplicated.
+- No documented error-body examples exist for the send endpoint specifically;
+  the same loose, vendor-agnostic error-text keyword matching
+  (`SendSmsResponseInterpreter.classifyErrorMessage`) applies unchanged.
+
+### Shared across both gateways
+- The burst requirement (10 SMS in 1–3 seconds) is well under the rate
+  limit in isolated bursts, but the queue worker must still handle
+  `429 Too Many Requests` gracefully (backoff + retry, not a dropped
+  message) in case of a busier sustained period.
+- Error handling: map documented/observed HTTP codes (400/401/403/429/500)
+  and error-message bodies (invalid API key, insufficient balance, invalid
+  phone, invalid/unregistered sender ID) to distinct, loggable failure
+  reasons in the activity log — "send failed" alone is not sufficient for
+  the agent to diagnose an issue.
+- A sender ID must be pre-registered with the respective gateway before it
+  will work — this is an account-setup prerequisite on the client's side,
+  not something the app can fix. Settings surfaces a clear error if a
+  gateway reports an unregistered sender ID, rather than retrying forever.
 
 ## M-Pesa message format — important
 The client's actual till-confirmation SMS format (note: this is the
