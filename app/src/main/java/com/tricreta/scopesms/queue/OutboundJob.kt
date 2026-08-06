@@ -66,6 +66,31 @@ data class OutboundJob(
 
     /** The gateway's message id once accepted; the handle for Phase 12 delivery lookups. */
     val gatewayMessageId: String? = null,
+
+    /**
+     * The [com.tricreta.scopesms.network.GatewayProvider] this job was created
+     * under, by name (`"BLAZETECH"`/`"HOSTPINNACLE"`) — resolved with
+     * [com.tricreta.scopesms.network.GatewayProvider.fromName].
+     *
+     * Nullable with no default, migrated via a plain `ALTER TABLE outbound_jobs
+     * ADD COLUMN provider TEXT` ([com.tricreta.scopesms.data.AppDatabase.MIGRATION_3_4]) —
+     * the same nullable/no-default shape
+     * [com.tricreta.scopesms.data.rules.PricingRuleEntity]'s `category` and
+     * `purchaseLimit` columns already use, and for the same reason: every job
+     * queued before this column existed is preserved untouched and read back
+     * as `null`, which decodes to [com.tricreta.scopesms.network.GatewayProvider.BLAZETECH]
+     * — the only gateway that existed then.
+     *
+     * Captured at enqueue time, not read live at send time, for the identical
+     * reason [senderId] already is: a job's sender ID was registered with ONE
+     * specific gateway account, so sending it through the OTHER provider live
+     * would almost certainly fail with an unregistered-sender error even
+     * though nothing else about the job changed. See
+     * [com.tricreta.scopesms.queue.OutboundQueue.sendOne] and
+     * [com.tricreta.scopesms.network.SmsGateway.sendSms]'s `senderId` doc for
+     * the full argument.
+     */
+    val provider: String? = null,
 )
 
 enum class OutboundJobStatus {

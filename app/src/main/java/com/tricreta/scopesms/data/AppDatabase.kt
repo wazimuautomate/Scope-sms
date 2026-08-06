@@ -86,7 +86,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun activityLogDao(): ActivityLogDao
 
     companion object {
-        const val DB_VERSION = 4
+        const val DB_VERSION = 5
 
         private const val DB_NAME = "scope-sms.db"
 
@@ -151,6 +151,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v4 → v5: `activity_log.provider` — which
+         * [com.tricreta.scopesms.network.GatewayProvider] a logged payment's
+         * reply actually went out through, so the activity log's "check status"
+         * action (HostPinnacle's `reports/status` lookup) knows which gateway to
+         * ask. Same nullable/no-default shape as every migration above: every
+         * row logged before this column existed reads back as null, which the
+         * UI treats as "assume BlazeTech" — the only gateway that could have
+         * sent it — same fallback [com.tricreta.scopesms.queue.OutboundJob.provider]
+         * already uses.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE activity_log ADD COLUMN provider TEXT")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -169,7 +186,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 // No fallbackToDestructiveMigration() — see the class doc.
                 .build()
     }

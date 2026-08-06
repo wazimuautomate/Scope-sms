@@ -52,6 +52,188 @@ notes just below.
 gateway signup/balance hints. See the dated section below the Play Store one.
 `update.json` on `main` confirmed reading versionCode 12 post-release.
 
+**Released 2026-08-06: v1.6.0 / versionCode 13** — HostPinnacle as a second,
+selectable SMS gateway alongside BlazeTech, plus a per-bundle purchase-window
+restriction with its own third reply flow. See "🟢 v1.6.0" below.
+
+---
+
+## 🟢 v1.6.0 (2026-08-06) — dual SMS gateway + bundle purchase-window/off-window flow
+
+Two client requests landed in the same release, built as two parallel tracks
+(a background subagent each, in separate git worktrees, both branching from
+one shared foundational commit) and merged together. Branch
+`feature/hostpinnacle-and-purchase-windows` → squash/merge to `main`.
+
+### Why two tracks, and why they needed a shared foundation first
+Both features needed to add columns to Room in the same release. Rather than
+let two independent `DB_VERSION` bumps collide, the very first commit on the
+integration branch was a standalone migration (`MIGRATION_3_4`, v3→v4) adding
+**both** features' columns at once — `pricing_rules.windowStartMinute`/
+`windowEndMinute` (purchase-window) and `outbound_jobs.provider` (gateway
+routing) — before either subagent started. Each track then built against that
+already-landed schema and never touched `AppDatabase.kt`'s version number
+itself, so the two branches could never conflict on it. A third, smaller
+migration (`MIGRATION_4_5`, v4→v5, `activity_log.provider`) was added by hand
+afterward for the delivery-status cross-cutting piece — see below. **`DB_VERSION`
+is now 5.**
+
+### 1. Dual SMS gateway — BlazeTech kept exactly as-is, HostPinnacle added alongside it
+
+**The client's requirement, stated in two parts across the same conversation.**
+First ask: switch the endpoint from BlazeTech to HostPinnacle entirely. Before
+any code was written, a follow-up correction arrived: **do not remove
+BlazeTech** — it is live in production and an agent's income depends on it
+(CLAUDE.md constraint 9). Instead, add HostPinnacle as a **second,
+independently-selectable** gateway: a Settings dropdown, each provider with
+its own API key + sender ID. This is the shape that shipped; the
+"replace-BlazeTech" framing never reached code.
+
+**HostPinnacle's wire format, verified against their live docs (not
+guessed), same rigor as the original SCOPE/BlazeTech reverse-engineering
+below:**
+- Base URL `https://smsportal.hostpinnacle.co.ke/SMSApi/`, `POST send`,
+  **`application/x-www-form-urlencoded`** (not JSON — the single biggest
+  difference from BlazeTech). Auth: `apikey` HTTP header only — this app
+  never uses HostPinnacle's userid/password mode, since the client only ever
+  had an API key. Fields: `mobile` (**international, `254XXXXXXXXX`, no
+  `+`** — the opposite of BlazeTech's local `07XXXXXXXX`, hence the new
+  `PhoneNumbers.toInternationalFormat`), `msg`, `senderid`, `sendMethod=quick`,
+  `msgType=text`, `duplicatecheck=true`, `output=json`.
+- **The response shape is byte-for-byte identical to BlazeTech's real (live,
+  undocumented) shape** — `status`/`mobile`/`invalidMobile`/`transactionId`/
+  `statusCode`/`reason`. Strong circumstantial evidence BlazeTech is itself a
+  reseller on top of a HostPinnacle-family platform. This meant the existing,
+  already-battle-tested `interpret()` delivery-detection logic (see the 🔴🔴
+  "real success response" gotcha further down) needed zero changes — it was
+  extracted into a shared `SendSmsResponseInterpreter` both gateway clients
+  call, rather than forked.
+- The client separately pasted their own HostPinnacle portal's generated
+  sample code mid-build. It included `userid`/`password` fields alongside the
+  `apikey` header, and `dltEntityId`/`dltTemplateId` fields — both are the
+  portal's generic code-template padding (userid/password: docs confirm
+  apikey works alone; dlt fields are India's TRAI SMS regulation, not
+  applicable to a Kenyan sender ID). Confirmed the already-in-flight
+  implementation needed no change rather than guessing wrong under time
+  pressure.
+- Also found and implemented, from the same docs sweep: `POST reports/status`
+  — a real delivery-status-by-transaction-id lookup (`uuid` = the
+  `transactionId` `send` returns). This is HostPinnacle's equivalent of the
+  `/smsstatus` endpoint CLAUDE.md's gateway section already flagged for
+  BlazeTech as "documented, optional, not built" — HostPinnacle's version
+  **is** built (`SmsGateway.checkStatus`/`DeliveryStatusOutcome`), surfaced as
+  a manual **"Check status"** row-menu action on the Activity Log (not
+  automatic polling — no new background infrastructure). `BlazeTechGateway`
+  inherits the interface's `NotSupported` default rather than guessing at an
+  undocumented BlazeTech endpoint.
+
+**Backward compatibility for existing agents — the single highest-stakes part
+of this release.** `GatewayCredentialsStore` (Keystore-encrypted, unchanged
+crypto) became provider-scoped: separate DataStore keys per provider
+(`gateway_api_key_blazetech` etc.), one shared Keystore AES key (GCM's
+per-value random IV already isolates every ciphertext, so a second alias
+would add risk for nothing). The **original unscoped keys are kept
+permanently, read-only**, and `credentials(BLAZETECH)` falls back to them
+whenever the new scoped BlazeTech keys are absent — a **read-through
+fallback, not a write-migration**. Every agent who updates keeps sending
+through BlazeTech with the exact key they already entered, with zero action
+and no "did the migration run" failure mode. `save()` only ever writes the
+new scoped keys going forward, so the legacy pair becomes vestigial the
+moment the agent re-saves; `clear(BLAZETECH)` removes both so a deliberate
+clear can't be silently un-done by the fallback.
+
+**Provider is captured per-job, exactly like `senderId` already was, and for
+the identical reason.** `OutboundJob.provider` (nullable, no default —
+`null` reads as `BLAZETECH`) is resolved once at enqueue time and a job
+always sends through *that* provider, never "whichever is active now" — a
+job's sender ID was registered with one specific gateway account, so a live
+provider switch mid-flight would route an old sender ID through the wrong
+account and almost certainly fail as an unregistered sender. Same reasoning
+now also applies to `activity_log.provider` (added afterward, by hand, for
+the "Check status" action to know which gateway to ask — see `MIGRATION_4_5`
+above).
+
+**`ScopeSmsGateway` renamed to `BlazeTechGateway`.** No longer accurate once
+two vendors exist; `ScopeSmsApi`/`SendSmsRequest`/`SendSmsResponse` kept their
+names (wire types tied to one vendor's shape either way). Both gateways now
+implement one `network/SmsGateway` interface, resolved per-job via
+`network/GatewayRegistry`.
+
+### 2. Bundle purchase-window + third "off-window" reply flow
+
+Safaricom now restricts some bundles to specific purchase hours (the client's
+example: "1GB 1Hr" @ Ksh19, buyable 4:00 PM–10:59 PM only). Added
+`domain/rules/PurchaseWindow` (start/end minute-of-day, wraparound-safe past
+midnight, `DEFAULT` = all day/every day — same "unrestricted by default"
+convention as `BundleCategory`/`PurchaseLimit`) as a per-bundle field, set via
+a Material3 `TimePicker` pair in the Rules editor (only shown once the agent
+flips an "all day" switch off).
+
+When a payment's amount matches a bundle price but arrives outside that
+bundle's window, `MatchOutcome` gets a new `OutOfWindow` arm (not `Matched`,
+not `Unmatched` — a real third case, exactly the reasoning that already
+justified `NoRulesConfigured`'s existence) — and it's a **new,
+independently-toggleable third flow**, `TemplateType.OFF_WINDOW`, with its
+own default template, its own `{purchase_window}` variable, and its own tab
+on the Messages screen (the client's explicit ask: "make them tabs" —
+already how that screen worked, so a third `TemplateType` entry alone was
+almost enough). `NotificationToggles.offWindowReplyEnabled` **defaults to
+`true`** (unlike `matchedReplyEnabled`'s cautious `false`) because the flow
+is structurally incapable of firing until the agent explicitly restricts a
+bundle's window — every existing bundle defaults to all-day, so turning this
+on by default changes nothing for anyone until they opt a bundle in.
+
+The payment's own M-Pesa-reported time (`MpesaPayment.time`, e.g. `"1:06
+PM"`) is what's checked against the window — **not wall-clock time** —
+because it's the SMS's own authoritative record of when the payment
+happened, keeping `PaymentPlanner` free of a clock dependency and fully
+testable on the JVM (`PurchaseWindow.minuteOfDayFrom`, a small tolerant
+regex parser, unparseable → treated as in-window/fail-open, since this
+exact time format is already what `MpesaParser` validated to accept the
+message at all).
+
+`RuleSnapshot.classify` gained a second, **defaulted-null** parameter
+(`minuteOfDay: Int? = null`) rather than becoming a breaking signature change
+— every pre-existing call site and test (dozens, across `RuleSnapshotTest`,
+`RoomCacheSyncTest`, `SnapshotCacheTest`) kept compiling and passing
+untouched; only the real decide path (`PaymentPlanner`) and the new
+window-specific tests pass an explicit value.
+
+### Both subagents' work was spot-checked before merging, not merged blind
+Read in full and verified against spec: `GatewayCredentialsStore` (the
+backward-compat fallback logic), `HostPinnacleApi`/`HostPinnacleGateway`
+(wire format), `OutboundQueue`/`PaymentPipeline` (provider routing),
+`PurchaseWindow`, `PaymentProcessor`'s `OFF_WINDOW` wiring, and the Rules
+screen's time-picker UI. Both tracks independently caught and fixed issues
+beyond the letter of their spec worth noting for next time: the gateway
+track found and fixed `HomeViewModel`/`ActivityLogViewModel` call sites that
+would have failed to compile against the new provider-scoped credentials API
+(not explicitly listed in its brief); the purchase-window track caught a
+real UX bug where flipping the "all day" switch off would immediately look
+"all day" again if seeded with `PurchaseWindow.DEFAULT`'s own values, and
+fixed it with a distinct seed window before it was ever asked to.
+
+### Merge mechanics — one real conflict, and why it wasn't hand-resolved
+Both branches independently regenerated `app/schemas/…/4.json` (Room's
+schema export), each reflecting only their own half of the v3→v4 migration's
+columns — the only merge conflict of the whole integration. Resolved by
+deleting the file and letting KSP regenerate it fresh once both entities'
+real changes were present together, rather than hand-merging JSON. Every
+other touched file (`SettingsScreen.kt`, `SettingsViewModel.kt`,
+`SettingsRepository.kt`, `strings.xml`) auto-merged cleanly — both tracks
+were briefed to touch clearly separate regions of the shared files
+(`GatewaySection` vs. `RepliesSection`), which held.
+
+### Known, pre-existing gap — not caused by this work
+`ActivityLogRepositoryTest` fails locally (`Robolectric sandbox: Android SDK
+36 requires Java 21 (have Java 17)`) — this sandbox only has JDK 17; the file
+needs JDK 21 for its Robolectric SDK-36 config, same gap the local-toolchain
+gotcha further down already documents for this exact class. Two new
+`provider` round-trip test cases were added to it (untouched otherwise) —
+they compile clean but couldn't be locally executed for the same reason;
+they'll run for real in CI, which provisions JDK 21. 407/408 other tests
+green locally, full combined suite.
+
 ---
 
 ## 🔴 Play Store push (2026-07-28) — started, two real blockers found before any AAB ships

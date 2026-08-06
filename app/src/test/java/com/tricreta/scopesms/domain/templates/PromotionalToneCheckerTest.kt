@@ -6,7 +6,8 @@ import org.junit.Test
 /**
  * The sender ID is registered as *transactional* with Safaricom — a message
  * that reads as promotional risks the carrier silently blocking it, with
- * nothing for `network/ScopeSmsGateway` to report. This is the safety net
+ * nothing for the gateway clients (`network/BlazeTechGateway`,
+ * `network/HostPinnacleGateway`) to report. This is the safety net
  * that catches that in the editor, before a template is ever saved.
  */
 class PromotionalToneCheckerTest {

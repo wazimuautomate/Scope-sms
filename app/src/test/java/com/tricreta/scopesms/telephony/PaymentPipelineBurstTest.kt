@@ -1,10 +1,14 @@
 package com.tricreta.scopesms.telephony
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.room.Room
 import com.google.common.truth.Truth.assertThat
 import com.tricreta.scopesms.data.AppDatabase
 import com.tricreta.scopesms.data.log.ActivityLogRepository
 import com.tricreta.scopesms.data.rules.RoomPricingRuleRepository
+import com.tricreta.scopesms.data.settings.GatewayCredentialsStore
 import com.tricreta.scopesms.data.settings.SettingsRepository
 import com.tricreta.scopesms.data.templates.RoomMessageTemplateRepository
 import com.tricreta.scopesms.domain.log.MatchType
@@ -15,9 +19,11 @@ import com.tricreta.scopesms.domain.parser.ParseResult
 import com.tricreta.scopesms.domain.rules.PricingRule
 import com.tricreta.scopesms.domain.rules.RuleCache
 import com.tricreta.scopesms.domain.templates.TemplateCache
+import com.tricreta.scopesms.network.BlazeTechGateway
 import com.tricreta.scopesms.network.GatewayCredentials
 import com.tricreta.scopesms.network.GatewayCredentialsProvider
-import com.tricreta.scopesms.network.ScopeSmsGateway
+import com.tricreta.scopesms.network.GatewayProvider
+import com.tricreta.scopesms.network.GatewayRegistry
 import com.tricreta.scopesms.queue.OutboundJobStatus
 import com.tricreta.scopesms.queue.OutboundQueue
 import com.tricreta.scopesms.queue.RoomOutboundJobStore
@@ -29,6 +35,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -112,16 +120,25 @@ class PaymentPipelineBurstTest {
         activityLog = ActivityLogRepository(db.activityLogDao())
         store = RoomOutboundJobStore(db.outboundJobDao())
 
+        // A real GatewayCredentialsStore, backed by an in-memory fake DataStore
+        // + a pass-through Crypto (no real Android Keystore needed) — pre-seeded
+        // with fixed BlazeTech credentials, same fixed values the old inline
+        // GatewayCredentialsProvider fake returned. PaymentPipeline needs the
+        // concrete provider-parameterized store now (it resolves the active
+        // gateway itself), not just a single-provider port.
+        val gatewayCredentials = GatewayCredentialsStore(FakeCredentialsDataStore(), PassthroughCrypto())
+        gatewayCredentials.save(GatewayProvider.BLAZETECH, GatewayCredentials(apiKey = "test-key", senderId = "SCOPE"))
+
         pipeline = PaymentPipeline(
             ruleCache = ruleCache,
             templateCache = templateCache,
             settings = SettingsRepository.create(context),
             activityLog = activityLog,
-            queue = OutboundQueue(store = store, gateway = unusableGateway()),
-            credentials = object : GatewayCredentialsProvider {
-                override suspend fun credentials() =
-                    GatewayCredentials(apiKey = "test-key", senderId = "SCOPE")
-            },
+            queue = OutboundQueue(
+                store = store,
+                gateways = GatewayRegistry(blazeTech = unusableGateway(), hostPinnacle = unusableGateway()),
+            ),
+            credentials = gatewayCredentials,
             requestDrain = { drainRequests.incrementAndGet() },
         )
     }
@@ -283,7 +300,7 @@ class PaymentPipelineBurstTest {
      * rather than assert that indirectly, make it impossible: any call here fails
      * the test outright.
      */
-    private fun unusableGateway(): ScopeSmsGateway = ScopeSmsGateway.create(
+    private fun unusableGateway(): BlazeTechGateway = BlazeTechGateway.create(
         credentialsProvider = object : GatewayCredentialsProvider {
             override suspend fun credentials(): GatewayCredentials =
                 error("The decide path must not touch the gateway")
@@ -297,4 +314,29 @@ class PaymentPipelineBurstTest {
         val MATCHED_AMOUNTS = listOf("20.00", "50.00")
         const val TIMEOUT_MS = 5_000L
     }
+}
+
+/**
+ * An in-memory [DataStore] — no disk, no Android Keystore. Just enough for
+ * [GatewayCredentialsStore] to be constructed and seeded with fixed test
+ * credentials without a real Keystore round-trip, which this test has no need
+ * to exercise (that's covered by `GatewayCredentialsStoreTest` and the
+ * emulator matrix).
+ */
+private class FakeCredentialsDataStore(initial: Preferences = emptyPreferences()) : DataStore<Preferences> {
+    private val state = MutableStateFlow(initial)
+
+    override val data: Flow<Preferences> = state
+
+    override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
+        val updated = transform(state.value)
+        state.value = updated
+        return updated
+    }
+}
+
+/** A no-op stand-in for [com.tricreta.scopesms.data.settings.KeystoreCrypto] — real AES/GCM needs the Android Keystore. */
+private class PassthroughCrypto : GatewayCredentialsStore.Crypto {
+    override fun encrypt(plaintext: String): String = plaintext
+    override fun decrypt(encoded: String): String = encoded
 }

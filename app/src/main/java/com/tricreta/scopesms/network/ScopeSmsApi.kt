@@ -7,8 +7,9 @@ import retrofit2.http.Body
 import retrofit2.http.POST
 
 /**
- * Retrofit binding for the SCOPE SMS gateway. Wire format lives here and
- * nowhere else — nothing outside `network/` should know these field names.
+ * Retrofit binding for the BlazeTech ("SCOPE SMS API") gateway. Wire format
+ * lives here and nowhere else — nothing outside `network/` should know these
+ * field names. See `network/HostPinnacleApi.kt` for the other gateway.
  *
  * Base URL: `https://sms.blazetechscope.com/v1/`
  *
@@ -36,7 +37,7 @@ internal interface ScopeSmsApi {
  * logcat, where any app with log access could read it (constraint 7).
  *
  * `@Keep` is not decoration. Moshi reads these classes reflectively (see
- * [ScopeSmsGateway.create]) and the release build runs R8 with
+ * [BlazeTechGateway.create]) and the release build runs R8 with
  * `isMinifyEnabled = true`, which would otherwise rename `senderId` to `a` and
  * silently change the JSON the gateway receives. That breaks *only* in release —
  * debug CI stays green — so the keep rule in `proguard-rules.pro` plus this
@@ -69,12 +70,17 @@ internal data class SendSmsRequest(
  * usually empty on the immediate response). Reading only the documented fields
  * made every real send look like an unexpected response — which is retryable —
  * so a delivered SMS was sent up to 5 times and then logged failed. Both shapes
- * are modelled so [ScopeSmsGateway] can honour whichever the gateway sends.
+ * are modelled so [BlazeTechGateway] can honour whichever the gateway sends.
  *
  * Every field is nullable: this models what the gateway *may* send back,
  * including error bodies, and a missing field must produce a typed failure
  * rather than a Moshi crash inside the worker. `response-code` is hyphenated on
  * the wire — not a typo, and not a valid Kotlin identifier, hence the @Json name.
+ *
+ * Reused as-is for [HostPinnacleGateway]: verified against the live HostPinnacle
+ * endpoint, its send response is byte-for-byte this same shape
+ * (`status`/`mobile`/`invalidMobile`/`transactionId`/`statusCode`/`reason`) —
+ * not a coincidence, HostPinnacle-family gateways share it.
  */
 @Keep
 internal data class SendSmsResponse(

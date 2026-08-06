@@ -8,14 +8,20 @@ payment, can independently:
 - **Unmatched amount** → text the customer the correct price list (replaces a
   manual phone call).
 - **Matched amount** → text the customer a purchase confirmation.
+- **Matched, but outside the bundle's purchase window** → text the customer
+  the correct window and reassure them the bundle is still coming, instead of
+  an instant confirmation. Only relevant for bundles the agent has explicitly
+  restricted to certain hours (Prices screen) — every bundle is buyable any
+  time by default.
 
-Both flows toggle on and off independently. That is an operational control, not
-a nicety: on a busy day, sending a confirmation for *every* matched purchase on
-top of the unmatched replies raises the volume under one sender ID, which is a
-real deliverability/ban risk with SMS gateways.
+All three flows toggle on and off independently. That is an operational
+control, not a nicety: on a busy day, sending a confirmation for *every*
+matched purchase on top of the unmatched replies raises the volume under one
+sender ID, which is a real deliverability/ban risk with SMS gateways.
 
-Reading happens **on the phone, offline**. Sending goes through the client's
-**SCOPE SMS gateway** using a registered sender ID — not the phone's SIM.
+Reading happens **on the phone, offline**. Sending goes through one of two
+gateways, agent-selectable in Settings — **BlazeTech** or **HostPinnacle** —
+each with its own API key and sender ID, not the phone's SIM.
 
 ---
 
@@ -73,10 +79,12 @@ or just install a newer `.apk` over the top.
 1. **Permissions** — needed to read incoming SMS at all.
 2. **SIM** — pick the SIM your till confirmations arrive on. The other SIM's
    messages are never even read.
-3. **Gateway** — your SCOPE API key and sender ID, then **send a test message to
-   your own number**. Do not skip this: an unregistered sender ID is an account
-   problem on SCOPE's side that the app cannot fix, and this is where you find
-   out.
+3. **Gateway** — pick BlazeTech or HostPinnacle from the dropdown, enter that
+   provider's API key and sender ID, then **send a test message to your own
+   number**. Do not skip this: an unregistered sender ID is an account problem
+   on the gateway's side that the app cannot fix, and this is where you find
+   out. Each provider remembers its own key — switching the dropdown later
+   doesn't lose the other one's.
 4. **Battery** — allow background activity, or the phone will close the app and
    payments will be missed while the screen is off.
 5. **Add your bundle prices** under **Prices**. Until you do, Scope SMS stays

@@ -1,12 +1,16 @@
 package com.tricreta.scopesms.queue
 
 import com.google.common.truth.Truth.assertThat
+import com.tricreta.scopesms.network.BlazeTechGateway
 import com.tricreta.scopesms.network.GatewayCredentials
 import com.tricreta.scopesms.network.GatewayCredentialsProvider
+import com.tricreta.scopesms.network.GatewayProvider
+import com.tricreta.scopesms.network.GatewayRegistry
 import com.tricreta.scopesms.network.ScopeSmsApi
-import com.tricreta.scopesms.network.ScopeSmsGateway
+import com.tricreta.scopesms.network.SendOutcome
 import com.tricreta.scopesms.network.SendSmsRequest
 import com.tricreta.scopesms.network.SendSmsResponse
+import com.tricreta.scopesms.network.SmsGateway
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.test.runTest
@@ -182,7 +186,13 @@ class OutboundQueueRetryTest {
         val api = Responds {
             // A second payment arrives while the first is mid-send.
             if (calls.incrementAndGet() == 1) {
-                queue.enqueue("TX-LATE", "254700000099", "Hi, prices: 20=1GB", credentials.senderId)
+                queue.enqueue(
+                    "TX-LATE",
+                    "254700000099",
+                    "Hi, prices: 20=1GB",
+                    credentials.senderId,
+                    GatewayProvider.BLAZETECH,
+                )
             }
             accepted()
         }
@@ -292,22 +302,101 @@ class OutboundQueueRetryTest {
         assertThat(remaining.single().status).isEqualTo(OutboundJobStatus.SENT)
     }
 
+    // --- Routing: a job sends via ITS OWN captured provider, not "whichever" --
+
+    @Test
+    fun `a job enqueued under HOSTPINNACLE sends via HostPinnacle, and one under BLAZETECH via BlazeTech`() = runTest {
+        val store = FakeOutboundJobStore()
+        val blazeTechCalls = AtomicInteger(0)
+        val hostPinnacleCalls = AtomicInteger(0)
+        val queue = OutboundQueue(
+            store = store,
+            gateways = GatewayRegistry(
+                blazeTech = RecordingGateway(blazeTechCalls),
+                hostPinnacle = RecordingGateway(hostPinnacleCalls),
+            ),
+            now = { 1_700_000_000_000L },
+        )
+        enqueueOne(queue, code = "TX-BT", phone = "254700000001", provider = GatewayProvider.BLAZETECH)
+        enqueueOne(queue, code = "TX-HP", phone = "254700000002", provider = GatewayProvider.HOSTPINNACLE)
+
+        val summary = queue.drain()
+
+        assertThat(summary.sent).isEqualTo(2)
+        assertThat(blazeTechCalls.get()).isEqualTo(1)
+        assertThat(hostPinnacleCalls.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `a legacy job with a null provider sends via BlazeTech, not HostPinnacle`() = runTest {
+        // Simulates every job queued before the provider column existed —
+        // inserted directly, bypassing enqueue() (which always stamps one now).
+        // GatewayProvider.fromName(null) must decode to BLAZETECH.
+        val store = FakeOutboundJobStore()
+        val blazeTechCalls = AtomicInteger(0)
+        val hostPinnacleCalls = AtomicInteger(0)
+        val queue = OutboundQueue(
+            store = store,
+            gateways = GatewayRegistry(
+                blazeTech = RecordingGateway(blazeTechCalls),
+                hostPinnacle = RecordingGateway(hostPinnacleCalls),
+            ),
+            now = { 1_700_000_000_000L },
+        )
+        store.insertIfNew(
+            OutboundJob(
+                transactionCode = "TX-LEGACY",
+                phone = "254700000003",
+                message = "Hi",
+                senderId = credentials.senderId,
+                createdAt = 1_700_000_000_000L,
+                provider = null,
+            ),
+        )
+
+        queue.drain()
+
+        assertThat(blazeTechCalls.get()).isEqualTo(1)
+        assertThat(hostPinnacleCalls.get()).isEqualTo(0)
+    }
+
+    /** Records how many times it was called and always accepts — for routing proofs. */
+    private class RecordingGateway(private val calls: AtomicInteger) : SmsGateway {
+        override suspend fun sendSms(phone: String, message: String, senderId: String?): SendOutcome {
+            calls.incrementAndGet()
+            return SendOutcome.Sent(messageId = "msg-${calls.get()}", mobile = phone, networkId = null)
+        }
+    }
+
     private suspend fun enqueueOne(
         queue: OutboundQueue,
         code: String = "TX00000001",
         phone: String = "254700000001",
-    ) = queue.enqueue(code, phone, "Hi Bonke, prices: 20=1GB", credentials.senderId)
+        provider: GatewayProvider = GatewayProvider.BLAZETECH,
+    ) = queue.enqueue(code, phone, "Hi Bonke, prices: 20=1GB", credentials.senderId, provider)
 
     private fun queueOf(store: OutboundJobStore, api: ScopeSmsApi) = OutboundQueue(
         store = store,
-        gateway = ScopeSmsGateway(
-            api,
-            object : GatewayCredentialsProvider {
-                override suspend fun credentials() = credentials
-            },
+        gateways = GatewayRegistry(
+            blazeTech = BlazeTechGateway(
+                api,
+                object : GatewayCredentialsProvider {
+                    override suspend fun credentials() = credentials
+                },
+            ),
+            // None of the tests in this file enqueue under HOSTPINNACLE, so a
+            // gateway that fails loudly if ever reached would catch a routing
+            // bug rather than silently passing.
+            hostPinnacle = UnreachableGateway,
         ),
         now = { 1_700_000_000_000L },
     )
+
+    /** Fails loudly if a job ever gets routed to the "wrong" provider's gateway. */
+    private object UnreachableGateway : SmsGateway {
+        override suspend fun sendSms(phone: String, message: String, senderId: String?): SendOutcome =
+            error("This job should never have been routed to this gateway")
+    }
 
     private fun accepted() = Response.success(
         SendSmsResponse(

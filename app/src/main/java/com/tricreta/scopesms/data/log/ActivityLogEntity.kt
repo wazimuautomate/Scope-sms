@@ -73,6 +73,19 @@ data class ActivityLogEntity(
 
     @ColumnInfo(name = "failure_reason")
     val failureReason: String? = null,
+
+    /**
+     * Which [com.tricreta.scopesms.network.GatewayProvider] this reply actually
+     * went out through, by name — null for rows logged before this column
+     * existed (or a [NotifyStatus.SILENT] row that never sent). The activity
+     * log's "check status" action reads this to know which gateway to ask;
+     * null there is treated as BlazeTech, the only gateway that could have
+     * sent a pre-existing row. Stored as a raw name, not the enum itself —
+     * `domain/` stays free of `network/` (see `domain/README.md`), so
+     * resolution happens where the check is actually made (the UI layer).
+     */
+    @ColumnInfo(name = "provider")
+    val provider: String? = null,
 ) {
 
     /**
@@ -98,6 +111,7 @@ data class ActivityLogEntity(
         replyBody = replyBody,
         gatewayMessageId = gatewayMessageId,
         failureReason = failureReason,
+        provider = provider,
     )
 
     companion object {
@@ -115,6 +129,7 @@ data class ActivityLogEntity(
             replyBody = record.replyBody,
             gatewayMessageId = record.gatewayMessageId,
             failureReason = record.failureReason,
+            provider = record.provider,
         )
     }
 }

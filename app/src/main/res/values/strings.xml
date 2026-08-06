@@ -152,6 +152,10 @@
     <string name="log_force_send_title">Send now?</string>
     <string name="log_force_send_body">Send %1$d message(s) right now, straight to the gateway? Each one is charged.</string>
     <string name="log_force_send_result">Sent %1$d, failed %2$d.</string>
+    <string name="log_check_status">Check status</string>
+    <string name="log_check_status_result">Gateway status: %1$s %2$s</string>
+    <string name="log_check_status_unsupported">This gateway doesn\'t support status checks yet.</string>
+    <string name="log_check_status_failed">Could not check status: %1$s</string>
     <string name="log_clear_sent">Clear sent</string>
     <string name="log_clear_pending">Clear pending</string>
     <string name="log_clear_all">Clear all</string>
@@ -186,7 +190,7 @@
     <string name="settings_gateway">SMS gateway</string>
     <string name="settings_gateway_help">Replies are sent through your SCOPE SMS account, not from this phone\'s SIM. Your API key is stored encrypted on this device only.</string>
     <string name="settings_gateway_get_key">Don\'t have an API key yet? Get one at</string>
-    <string name="settings_gateway_balance">Make sure your BlazeTech SMS account has enough SMS balance/tokens — replies will fail to send if it runs out.</string>
+    <string name="settings_gateway_balance">Make sure your SMS gateway account has enough SMS balance/tokens — replies will fail to send if it runs out.</string>
     <string name="settings_gateway_saved">Saved: key %1$s · sender ID %2$s</string>
     <string name="settings_gateway_clear">Remove</string>
     <string name="settings_gateway_save_failed">This phone could not store the key securely. Try again, and if it keeps failing, tell your developer.</string>
@@ -197,6 +201,12 @@
     <string name="settings_test_phone">Your own number, e.g. 0712345678</string>
     <string name="settings_test_send">Send test</string>
     <string name="settings_test_ok">Sent. If it arrives, your gateway is set up correctly.</string>
+
+    <!-- Dual-gateway support: which SMS provider is active. Each has its own
+         key + sender ID, entered and saved independently (see GatewaySection). -->
+    <string name="settings_gateway_provider_label">Gateway</string>
+    <string name="settings_gateway_provider_blazetech">BlazeTech SMS</string>
+    <string name="settings_gateway_provider_hostpinnacle">HostPinnacle SMS</string>
 
     <string name="settings_replies">Automatic replies</string>
 

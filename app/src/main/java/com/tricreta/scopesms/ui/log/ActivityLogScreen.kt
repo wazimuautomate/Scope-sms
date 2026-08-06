@@ -95,6 +95,25 @@ fun ActivityLogScreen(
         }
     }
 
+    // The result of a "check status" lookup, shown once as a toast — same
+    // fire-and-clear pattern as force-send above.
+    val statusCheckResult by viewModel.statusCheckResult.collectAsStateWithLifecycle()
+    statusCheckResult?.let { result ->
+        LaunchedEffect(result) {
+            val text = when (result) {
+                is StatusCheckResult.Known -> context.getString(
+                    R.string.log_check_status_result,
+                    result.status,
+                    result.cause.orEmpty(),
+                )
+                StatusCheckResult.Unsupported -> context.getString(R.string.log_check_status_unsupported)
+                is StatusCheckResult.Failed -> context.getString(R.string.log_check_status_failed, result.reason)
+            }
+            Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+            viewModel.clearStatusCheckResult()
+        }
+    }
+
     Column(modifier.fillMaxSize()) {
         // Contextual bar while rows are selected (force send / copy / delete);
         // otherwise the title row with the bulk-clear menu.
@@ -198,6 +217,7 @@ fun ActivityLogScreen(
                     onClick = { if (selectionMode) viewModel.toggleSelection(record.id) },
                     onLongClick = { viewModel.toggleSelection(record.id) },
                     onForceSend = { viewModel.forceSendOne(record) },
+                    onCheckStatus = { viewModel.checkStatus(record) },
                 )
             }
         }
@@ -382,6 +402,7 @@ private fun LogRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onForceSend: () -> Unit,
+    onCheckStatus: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -444,6 +465,14 @@ private fun LogRow(
                                 // SILENT rows have no rendered body to send.
                                 enabled = record.replyBody != null,
                                 onClick = { menuExpanded = false; onForceSend() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.log_check_status)) },
+                                // Only meaningful once the gateway has actually
+                                // accepted a send — nothing to look up before then.
+                                enabled = record.notifyStatus == NotifyStatus.SENT &&
+                                    !record.gatewayMessageId.isNullOrBlank(),
+                                onClick = { menuExpanded = false; onCheckStatus() },
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.log_copy_code)) },

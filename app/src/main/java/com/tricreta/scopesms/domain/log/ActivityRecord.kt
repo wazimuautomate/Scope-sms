@@ -134,6 +134,17 @@ data class ActivityRecord(
      * anything containing the API key.
      */
     val failureReason: String?,
+
+    /**
+     * The gateway provider this reply actually went out through, by name
+     * (e.g. `"BLAZETECH"`, `"HOSTPINNACLE"`) — null for rows logged before
+     * this field existed, or a [NotifyStatus.SILENT] row that never sent
+     * anything. A raw name rather than the enum itself: `domain/` stays free
+     * of the `network/` package (`domain/README.md`), so resolving it back to
+     * a real gateway to call happens in the UI layer, where the "check
+     * status" action lives.
+     */
+    val provider: String? = null,
 )
 
 /**

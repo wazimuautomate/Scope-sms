@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 4,
-    "identityHash": "c387bdaab8fc575e7d742651df045b2f",
+    "version": 5,
+    "identityHash": "1e2b6e8c2f345dbe0cbd5f5083b2a2ea",
     "entities": [
       {
         "tableName": "pricing_rules",
@@ -194,7 +194,7 @@
       },
       {
         "tableName": "activity_log",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `timestamp` INTEGER NOT NULL, `transaction_code` TEXT NOT NULL, `sender_name` TEXT, `sender_phone` TEXT NOT NULL, `amount_cents` INTEGER NOT NULL, `match_type` TEXT NOT NULL, `notify_status` TEXT NOT NULL, `bundle_description` TEXT, `reply_body` TEXT, `gateway_message_id` TEXT, `failure_reason` TEXT)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `timestamp` INTEGER NOT NULL, `transaction_code` TEXT NOT NULL, `sender_name` TEXT, `sender_phone` TEXT NOT NULL, `amount_cents` INTEGER NOT NULL, `match_type` TEXT NOT NULL, `notify_status` TEXT NOT NULL, `bundle_description` TEXT, `reply_body` TEXT, `gateway_message_id` TEXT, `failure_reason` TEXT, `provider` TEXT)",
         "fields": [
           {
             "fieldPath": "id",
@@ -262,6 +262,11 @@
             "fieldPath": "failureReason",
             "columnName": "failure_reason",
             "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -294,7 +299,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c387bdaab8fc575e7d742651df045b2f')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1e2b6e8c2f345dbe0cbd5f5083b2a2ea')"
     ]
   }
 }

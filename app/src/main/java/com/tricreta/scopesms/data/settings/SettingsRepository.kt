@@ -13,6 +13,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.tricreta.scopesms.domain.notifications.NotificationToggles
 import com.tricreta.scopesms.domain.settings.ThemePreference
 import com.tricreta.scopesms.domain.sim.SimSelection
+import com.tricreta.scopesms.network.GatewayProvider
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -69,6 +70,30 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         .map { ThemePreference.decode(it[KEY_THEME_PREFERENCE]) }
 
     /**
+     * Last provider read from disk, or null before the first read.
+     *
+     * Cached for the same reason as [cachedSimSelection]: [PaymentPipeline]
+     * reads this on the async decide-and-enqueue path (once per payment) to
+     * choose which gateway a reply is queued under — the same category of read
+     * as the sender ID, and both belong in-memory rather than behind a fresh
+     * DataStore read per SMS (CLAUDE.md constraint 5).
+     */
+    @Volatile
+    private var cachedActiveGatewayProvider: GatewayProvider? = null
+
+    /**
+     * Which SMS gateway is active. Emits the current value immediately, then on
+     * every change. Absent means "never chosen", which decodes through
+     * [GatewayProvider.fromName]'s own fallback to [GatewayProvider.DEFAULT]
+     * (BlazeTech) — every install must keep sending through BlazeTech until the
+     * agent deliberately switches in Settings.
+     */
+    val activeGatewayProvider: Flow<GatewayProvider> = dataStore.data
+        .safe()
+        .map { GatewayProvider.fromName(it[KEY_ACTIVE_GATEWAY_PROVIDER]) }
+        .onEach { cachedActiveGatewayProvider = it }
+
+    /**
      * Last toggles read from disk, or null before the first read.
      *
      * Cached for the same reason as [cachedSimSelection]: the decision path reads
@@ -117,6 +142,21 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         // rather than the old one.
         cachedSimSelection = selection
         dataStore.edit { it[KEY_SIM_SELECTION] = SimSelection.encode(selection) }
+    }
+
+    /**
+     * The active gateway, for callers on the hot path. No I/O once anything in
+     * this process has read [activeGatewayProvider] — see [currentSimSelection].
+     */
+    suspend fun currentActiveGatewayProvider(): GatewayProvider =
+        cachedActiveGatewayProvider ?: activeGatewayProvider.first()
+
+    suspend fun setActiveGatewayProvider(provider: GatewayProvider) {
+        // Cache first, then persist — same order as setSimSelection, so a
+        // payment landing in the same millisecond as the agent's tap is queued
+        // under the gateway they just picked, not the one they just left.
+        cachedActiveGatewayProvider = provider
+        dataStore.edit { it[KEY_ACTIVE_GATEWAY_PROVIDER] = provider.name }
     }
 
     /**
@@ -225,6 +265,11 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         // (SYSTEM) — a missing key must read as "follow the phone", not as a
         // forced light or dark.
         private val KEY_THEME_PREFERENCE = stringPreferencesKey("theme_preference")
+
+        // Absent means "never chosen" and decodes to GatewayProvider.DEFAULT
+        // (BlazeTech) via GatewayProvider.fromName — every install must keep
+        // sending through BlazeTech until the agent deliberately switches.
+        private val KEY_ACTIVE_GATEWAY_PROVIDER = stringPreferencesKey("active_gateway_provider")
 
         // Phase 6. Absent means "never set" and falls back to
         // NotificationToggles.DEFAULT — which is why these are read with `?:`

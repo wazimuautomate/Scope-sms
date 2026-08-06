@@ -1,10 +1,12 @@
 package com.tricreta.scopesms.queue
 
 import com.google.common.truth.Truth.assertThat
+import com.tricreta.scopesms.network.BlazeTechGateway
 import com.tricreta.scopesms.network.GatewayCredentials
 import com.tricreta.scopesms.network.GatewayCredentialsProvider
+import com.tricreta.scopesms.network.GatewayProvider
+import com.tricreta.scopesms.network.GatewayRegistry
 import com.tricreta.scopesms.network.ScopeSmsApi
-import com.tricreta.scopesms.network.ScopeSmsGateway
 import com.tricreta.scopesms.network.SendSmsRequest
 import com.tricreta.scopesms.network.SendSmsResponse
 import java.util.concurrent.CopyOnWriteArrayList
@@ -224,11 +226,18 @@ class OutboundQueueBurstTest {
         phone = payment.phone,
         message = payment.message,
         senderId = credentials.senderId,
+        provider = GatewayProvider.BLAZETECH,
     )
 
     private fun queueOf(store: OutboundJobStore, api: ScopeSmsApi) = OutboundQueue(
         store = store,
-        gateway = ScopeSmsGateway(api, provider()),
+        gateways = GatewayRegistry(
+            blazeTech = BlazeTechGateway(api, provider()),
+            // Nothing in this file enqueues under HOSTPINNACLE; routing itself
+            // is proven in OutboundQueueRetryTest, this file is the burst/no-drop
+            // guarantees, which don't depend on which provider is involved.
+            hostPinnacle = BlazeTechGateway(api, provider()),
+        ),
         now = MonotonicClock()::next,
     )
 
