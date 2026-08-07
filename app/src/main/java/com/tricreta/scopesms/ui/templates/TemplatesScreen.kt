@@ -140,29 +140,35 @@ fun TemplatesContent(
                         TemplateType.OFF_WINDOW -> R.string.tpl_off_window_explainer
                     },
                 ),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            OutlinedTextField(
-                value = editor.body,
-                onValueChange = { onEdit(type, it) },
-                label = { Text(stringResource(R.string.tpl_body_label)) },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 4,
-                isError = !editor.validation.isValid,
-            )
-
-            // Only this flow's variables. {package} in an unmatched reply has no
-            // rule to name, and {bundle_list} in a confirmation would append the
-            // whole price list to a message the customer didn't ask for — so the
-            // chips can't offer them.
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                editor.allowedVariables.forEach { variable ->
-                    AssistChip(
-                        onClick = { onAppendVariable(type, variable) },
-                        label = { Text(variable.token) },
+            // Editor + variable chips grouped as one card — what you're writing
+            // and what you can drop into it belong visually together.
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = editor.body,
+                        onValueChange = { onEdit(type, it) },
+                        label = { Text(stringResource(R.string.tpl_body_label)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 4,
+                        isError = !editor.validation.isValid,
                     )
+
+                    // Only this flow's variables. {package} in an unmatched reply
+                    // has no rule to name, and {bundle_list} in a confirmation
+                    // would append the whole price list to a message the
+                    // customer didn't ask for — so the chips can't offer them.
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        editor.allowedVariables.forEach { variable ->
+                            AssistChip(
+                                onClick = { onAppendVariable(type, variable) },
+                                label = { Text(variable.token) },
+                            )
+                        }
+                    }
                 }
             }
 

@@ -117,6 +117,7 @@ object PaymentPlanner {
                         matchedRule = requireNotNull(rule) {
                             "MATCHED flow with no rule — ReplyDecision invariant broken"
                         },
+                        mpesaCode = payment.transactionCode,
                     )
 
                     TemplateType.UNMATCHED -> TemplateEngine.unmatchedValues(
@@ -124,6 +125,7 @@ object PaymentPlanner {
                         amount = payment.amount,
                         phone = payment.senderPhone,
                         activeRules = rules.activeRules,
+                        mpesaCode = payment.transactionCode,
                     )
 
                     TemplateType.OFF_WINDOW -> TemplateEngine.offWindowValues(
@@ -135,6 +137,7 @@ object PaymentPlanner {
                         matchedRule = requireNotNull(rule) {
                             "OFF_WINDOW flow with no rule — ReplyDecision invariant broken"
                         },
+                        mpesaCode = payment.transactionCode,
                     )
                 }
 

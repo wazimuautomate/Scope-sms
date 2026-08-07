@@ -52,11 +52,11 @@
 
     <!-- Toggles -->
     <string name="toggle_unmatched_title">Reply with the price list</string>
-    <string name="toggle_unmatched_subtitle">When a customer pays an amount that is not one of your bundle prices.</string>
+    <string name="toggle_unmatched_subtitle">Amount doesn\'t match any bundle price.</string>
     <string name="toggle_matched_title">Confirm purchases</string>
-    <string name="toggle_matched_subtitle">When a customer pays exactly one of your bundle prices. Higher volume — keep off on busy days.</string>
+    <string name="toggle_matched_subtitle">Amount matches a bundle price. High volume — consider off on busy days.</string>
     <string name="toggle_off_window_title">Reply outside buying hours</string>
-    <string name="toggle_off_window_subtitle">When a customer pays exactly one of your bundle prices, but outside the hours that bundle can be bought in.</string>
+    <string name="toggle_off_window_subtitle">Matches a price, but outside that bundle\'s buying hours.</string>
 
     <!-- Rules -->
     <string name="rules_add">Add price</string>
@@ -105,13 +105,13 @@
     <string name="tpl_tab_unmatched">Price list reply</string>
     <string name="tpl_tab_matched">Purchase confirmation</string>
     <string name="tpl_tab_off_window">Outside buying hours</string>
-    <string name="tpl_unmatched_explainer">Sent when a customer pays an amount that matches none of your bundles.</string>
-    <string name="tpl_matched_explainer">Sent when a customer pays exactly one of your bundle prices.</string>
-    <string name="tpl_off_window_explainer">Sent when a customer pays exactly one of your bundle prices, but outside the hours that bundle can be bought in.</string>
+    <string name="tpl_unmatched_explainer">Amount doesn\'t match any bundle price.</string>
+    <string name="tpl_matched_explainer">Amount matches a bundle price.</string>
+    <string name="tpl_off_window_explainer">Matches a price, but outside that bundle\'s buying hours.</string>
     <string name="tpl_body_label">Message</string>
     <string name="tpl_reset">Reset to default</string>
     <string name="tpl_preview">Preview</string>
-    <string name="tpl_preview_note">Uses your real price list, so this is exactly what a customer would receive.</string>
+    <string name="tpl_preview_note">Exactly what a customer would receive.</string>
     <string name="tpl_segments">%1$d characters · %2$d SMS · %3$s</string>
     <string name="tpl_err_unknown">Not a real variable: %1$s. Check the spelling — it will be sent to the customer exactly as typed.</string>
     <string name="tpl_err_disallowed">%1$s has no value in this message and will be left blank.</string>
@@ -177,21 +177,21 @@
 
     <!-- Settings -->
     <string name="settings_sim">Which SIM</string>
-    <string name="settings_sim_help">Scope SMS only reads M-Pesa messages that arrive on the SIM you choose. Your personal SIM is left alone.</string>
+    <string name="settings_sim_help">Only M-Pesa on this SIM is read.</string>
     <string name="settings_sim_all">Both SIMs</string>
     <string name="settings_sim_none">No SIM cards detected.</string>
 
+    <string name="settings_section_sim_senders">SIM &amp; Senders</string>
     <string name="settings_trusted_senders">Trusted M-Pesa senders</string>
-    <string name="settings_trusted_senders_help">Scope SMS always reads the official M-Pesa shortcode. If you also receive till confirmations from another registered sender ID — for example your own SKYSCOPE_ number — add it here so those are read too.</string>
+    <string name="settings_trusted_senders_help">Also trust another sender that sends till confirmations, e.g. your own SKYSCOPE_.</string>
     <string name="settings_trusted_senders_label">Sender ID</string>
     <string name="settings_trusted_senders_add">Add</string>
     <string name="settings_trusted_senders_remove">Remove</string>
 
-    <string name="settings_gateway">SMS gateway</string>
-    <string name="settings_gateway_help">Replies are sent through your SMS gateway account, not from this phone\'s SIM. Your credentials are stored encrypted on this device only.</string>
-    <string name="settings_gateway_get_key">Don\'t have an API key yet? Get one at</string>
-    <string name="settings_gateway_get_account">Don\'t have an account yet? Sign up at</string>
-    <string name="settings_gateway_balance">Make sure your SMS gateway account has enough SMS balance/tokens — replies will fail to send if it runs out.</string>
+    <string name="settings_gateway">SMS Gateway</string>
+    <string name="settings_gateway_get_key">Get an API key at</string>
+    <string name="settings_gateway_get_account">Sign up at</string>
+    <string name="settings_gateway_balance">Keep enough balance, or replies will fail.</string>
     <string name="settings_gateway_saved">Saved: key %1$s · sender ID %2$s</string>
     <string name="settings_gateway_saved_with_user">Saved for %1$s: key %2$s · sender ID %3$s</string>
     <string name="settings_gateway_clear">Remove</string>
@@ -200,7 +200,7 @@
     <string name="settings_username">Username</string>
     <string name="settings_password">Password</string>
     <string name="settings_sender_id">Sender ID</string>
-    <string name="settings_sender_id_help">Must already be registered with SCOPE, or messages will be rejected.</string>
+    <string name="settings_sender_id_help">Must be registered with your gateway.</string>
     <string name="settings_test_title">Send a test message</string>
     <string name="settings_test_phone">Your own number, e.g. 0712345678</string>
     <string name="settings_test_send">Send test</string>
@@ -212,21 +212,24 @@
     <string name="settings_gateway_provider_blazetech">BlazeTech SMS</string>
     <string name="settings_gateway_provider_hostpinnacle">HostPinnacle SMS</string>
 
+    <string name="settings_section_replies">Automatic Replies</string>
     <string name="settings_replies">Automatic replies</string>
 
-    <string name="settings_appearance">Appearance</string>
-    <string name="settings_theme_system">Follow system (default)</string>
+    <string name="settings_section_general">General</string>
+
+    <string name="settings_appearance">Theme</string>
+    <string name="settings_theme_system">Auto</string>
     <string name="settings_theme_light">Light</string>
     <string name="settings_theme_dark">Dark</string>
 
     <string name="settings_reliability">Staying awake</string>
-    <string name="settings_battery_ok">Scope SMS is allowed to run in the background.</string>
-    <string name="settings_battery_bad">Your phone can close Scope SMS in the background. Payments would be missed.</string>
+    <string name="settings_battery_ok">Background access allowed.</string>
+    <string name="settings_battery_bad">Phone may close the app in the background — payments could be missed.</string>
     <string name="settings_battery_fix">Allow background activity</string>
 
     <!-- Reset -->
+    <string name="settings_section_about_reset">About &amp; Reset</string>
     <string name="settings_reset">Reset app</string>
-    <string name="settings_reset_explain">Wipe everything and start fresh — prices, messages, activity, SIM choice, and your gateway details. Use this when things get messy.</string>
     <string name="settings_reset_title">Reset the whole app?</string>
     <string name="settings_reset_body">This erases everything on the app: prices, message templates, the activity log, any unsent messages, SIM choice, and your SMS gateway key and sender ID. The app will close and reopen as if newly installed. This cannot be undone.</string>
     <string name="settings_reset_confirm">Erase everything</string>

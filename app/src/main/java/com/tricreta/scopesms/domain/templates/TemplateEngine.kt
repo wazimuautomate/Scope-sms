@@ -100,30 +100,41 @@ object TemplateEngine {
         amount: KshAmount,
         phone: String?,
         activeRules: List<PricingRule>,
+        mpesaCode: String = "",
     ): Map<TemplateVariable, String?> = mapOf(
         TemplateVariable.NAME to name,
         TemplateVariable.FIRST_NAME to firstNameOf(name),
         TemplateVariable.LAST_NAME to lastNameOf(name),
         TemplateVariable.AMOUNT to amount.format(),
         TemplateVariable.PHONE to phone,
+        TemplateVariable.MPESA_CODE to mpesaCode,
         TemplateVariable.BUNDLE_LIST to BundleListRenderer.render(activeRules),
         TemplateVariable.DATA_OFFERS to BundleListRenderer.render(activeRules, BundleCategory.DATA),
         TemplateVariable.MINUTES_OFFERS to BundleListRenderer.render(activeRules, BundleCategory.MINUTES),
         TemplateVariable.SMS_OFFERS to BundleListRenderer.render(activeRules, BundleCategory.SMS),
     )
 
-    /** Values for the matched flow: confirm what [matchedRule] says they bought. */
+    /**
+     * Values for the matched flow: confirm what [matchedRule] says they bought.
+     *
+     * @param mpesaCode defaults to "" so every pre-existing call site (this
+     *   function predates [TemplateVariable.MPESA_CODE]) keeps compiling —
+     *   same reasoning as [com.tricreta.scopesms.domain.rules.RuleSnapshot]'s
+     *   defaulted `minuteOfDay` parameter.
+     */
     fun matchedValues(
         name: String?,
         amount: KshAmount,
         phone: String?,
         matchedRule: PricingRule,
+        mpesaCode: String = "",
     ): Map<TemplateVariable, String?> = mapOf(
         TemplateVariable.NAME to name,
         TemplateVariable.FIRST_NAME to firstNameOf(name),
         TemplateVariable.LAST_NAME to lastNameOf(name),
         TemplateVariable.AMOUNT to amount.format(),
         TemplateVariable.PHONE to phone,
+        TemplateVariable.MPESA_CODE to mpesaCode,
         TemplateVariable.PACKAGE to matchedRule.bundleDescription,
         TemplateVariable.PURCHASE_LIMIT to matchedRule.purchaseLimit.describe(),
     )
@@ -137,12 +148,14 @@ object TemplateEngine {
         amount: KshAmount,
         phone: String?,
         matchedRule: PricingRule,
+        mpesaCode: String = "",
     ): Map<TemplateVariable, String?> = mapOf(
         TemplateVariable.NAME to name,
         TemplateVariable.FIRST_NAME to firstNameOf(name),
         TemplateVariable.LAST_NAME to lastNameOf(name),
         TemplateVariable.AMOUNT to amount.format(),
         TemplateVariable.PHONE to phone,
+        TemplateVariable.MPESA_CODE to mpesaCode,
         TemplateVariable.PACKAGE to matchedRule.bundleDescription,
         TemplateVariable.PURCHASE_WINDOW to matchedRule.purchaseWindow.describe(),
     )

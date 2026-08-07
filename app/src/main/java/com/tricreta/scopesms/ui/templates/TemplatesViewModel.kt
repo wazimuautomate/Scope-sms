@@ -133,6 +133,7 @@ class TemplatesViewModel(
             amount = KshAmount.ofShillings(SAMPLE_ODD_AMOUNT),
             phone = SAMPLE_PHONE,
             activeRules = activeRules,
+            mpesaCode = SAMPLE_MPESA_CODE,
         )
 
         TemplateType.MATCHED -> TemplateEngine.matchedValues(
@@ -140,6 +141,7 @@ class TemplatesViewModel(
             amount = activeRules.firstOrNull()?.amount ?: KshAmount.ofShillings(SAMPLE_AMOUNT),
             phone = SAMPLE_PHONE,
             matchedRule = activeRules.firstOrNull() ?: SAMPLE_RULE,
+            mpesaCode = SAMPLE_MPESA_CODE,
         )
 
         // {purchase_window} preview: the agent's real first bundle when one
@@ -153,6 +155,7 @@ class TemplatesViewModel(
             amount = activeRules.firstOrNull()?.amount ?: KshAmount.ofShillings(SAMPLE_AMOUNT),
             phone = SAMPLE_PHONE,
             matchedRule = activeRules.firstOrNull() ?: SAMPLE_OFF_WINDOW_RULE,
+            mpesaCode = SAMPLE_MPESA_CODE,
         )
     }
 
@@ -197,6 +200,7 @@ class TemplatesViewModel(
 
         private const val SAMPLE_NAME = "John Kamau"
         private const val SAMPLE_PHONE = "0712345678"
+        private const val SAMPLE_MPESA_CODE = "QGL7XCP2KD"
 
         /** An amount that matches nothing — what an unmatched reply is triggered by. */
         private const val SAMPLE_ODD_AMOUNT = 35L

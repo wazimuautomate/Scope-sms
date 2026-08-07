@@ -4,6 +4,39 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-08-07 — v1.6.2: {mpesa_code} template variable + Settings/Messages redesign
+
+Same session as the v1.6.1 HostPinnacle fix above. Client asked for a new
+template variable and said Settings had gotten "too wordy."
+
+### New `{mpesa_code}` variable, in all three reply flows
+Renders the M-Pesa transaction code (`MpesaPayment.transactionCode`).
+Available as a chip in the price-list reply, purchase confirmation, and
+off-window reply — the client's explicit ask was "across all message
+template variables." Not added to the default template text itself, just
+made available for the agent to insert.
+
+### Settings redesign
+Regrouped into five clearly-labelled cards — Automatic Replies, SIM &
+Senders, SMS Gateway, General, About & Reset — and cut several paragraph-long
+help texts down to a phrase. Appearance is now three icons (system/light/
+dark) instead of a radio-button list. Reset app is now a small muted text
+button instead of its own red card — same confirmation dialog, just far less
+visually loud, since it's a rare action that shouldn't compete with the
+settings someone actually changes often. The Messages (Templates) screen got
+the same wordiness trim and groups the message editor with its variable
+chips in one card.
+
+No new dependency was added for the sun/moon icons — this project's icon
+library is deliberately core-only (a documented ~10MB size tradeoff), so
+they're small hand-drawn `Canvas` shapes instead. Full rationale, including
+why `mpesaCode` is a defaulted rather than required parameter, is in
+`memory.md`.
+
+### Version: 1.6.1 (14) → 1.6.2 (15)
+
+---
+
 ## 2026-08-07 — v1.6.1: HostPinnacle was shipped with the wrong auth mode; fixed
 
 Branch `fix/hostpinnacle-invalid-credentials-classification` → `main`. Client
