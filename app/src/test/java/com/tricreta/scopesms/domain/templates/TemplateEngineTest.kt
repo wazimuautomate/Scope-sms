@@ -279,6 +279,57 @@ class TemplateEngineTest {
         assertThat(rendered).contains("4:00 PM to 10:59 PM")
     }
 
+    // --- M-Pesa code (available in every flow) ------------------------------
+
+    @Test
+    fun `mpesa_code renders the transaction code in every flow`() {
+        assertThat(
+            TemplateEngine.render(
+                "{mpesa_code}",
+                TemplateEngine.unmatchedValues("A", KshAmount.ofShillings(35), "0700", priceList, mpesaCode = "QGL7XCP2KD"),
+            ),
+        ).isEqualTo("QGL7XCP2KD")
+
+        assertThat(
+            TemplateEngine.render(
+                "{mpesa_code}",
+                TemplateEngine.matchedValues(
+                    "A", KshAmount.ofShillings(50), "0700", rule(2, 50, "2GB Weekly"), mpesaCode = "QGL7XCP2KD",
+                ),
+            ),
+        ).isEqualTo("QGL7XCP2KD")
+
+        assertThat(
+            TemplateEngine.render(
+                "{mpesa_code}",
+                TemplateEngine.offWindowValues(
+                    "A", KshAmount.ofShillings(19), "0700",
+                    rule(2, 19, "1GB 1Hr").copy(purchaseWindow = PurchaseWindow(16 * 60, 22 * 60 + 59)),
+                    mpesaCode = "QGL7XCP2KD",
+                ),
+            ),
+        ).isEqualTo("QGL7XCP2KD")
+    }
+
+    @Test
+    fun `mpesa_code defaults to a clean gap when the caller omits it`() {
+        // Every pre-existing call site in this file omits mpesaCode — this locks
+        // in that the default doesn't crash or leave a raw token.
+        val rendered = TemplateEngine.render(
+            "Ref {mpesa_code}.",
+            TemplateEngine.matchedValues("A", KshAmount.ofShillings(50), "0700", rule(2, 50, "2GB Weekly")),
+        )
+
+        assertThat(rendered).isEqualTo("Ref.")
+    }
+
+    @Test
+    fun `mpesa_code is allowed in all three flows`() {
+        assertThat(TemplateVariable.allowedFor(TemplateType.UNMATCHED)).contains(TemplateVariable.MPESA_CODE)
+        assertThat(TemplateVariable.allowedFor(TemplateType.MATCHED)).contains(TemplateVariable.MPESA_CODE)
+        assertThat(TemplateVariable.allowedFor(TemplateType.OFF_WINDOW)).contains(TemplateVariable.MPESA_CODE)
+    }
+
     // --- Matched flow -------------------------------------------------------
 
     @Test

@@ -96,6 +96,16 @@ enum class TemplateVariable(val token: String) {
      */
     PURCHASE_WINDOW("{purchase_window}"),
 
+    /**
+     * The M-Pesa transaction code, e.g. `UGFMXB3GR6` — [MpesaPayment.transactionCode]
+     * verbatim. Always present (the parser requires it to produce a payment at
+     * all), so unlike [NAME]/[PHONE] it never degrades to a gap. Allowed in all
+     * three flows: the agent may want to reference "your payment {mpesa_code}"
+     * in any reply, and there's no flow it doesn't make sense in the way
+     * `{package}` doesn't make sense in an unmatched reply.
+     */
+    MPESA_CODE("{mpesa_code}"),
+
     ;
 
     companion object {
@@ -114,13 +124,13 @@ enum class TemplateVariable(val token: String) {
         fun allowedFor(type: TemplateType): Set<TemplateVariable> = when (type) {
             TemplateType.UNMATCHED ->
                 setOf(
-                    NAME, FIRST_NAME, LAST_NAME, AMOUNT, PHONE,
+                    NAME, FIRST_NAME, LAST_NAME, AMOUNT, PHONE, MPESA_CODE,
                     BUNDLE_LIST, DATA_OFFERS, MINUTES_OFFERS, SMS_OFFERS,
                 )
             TemplateType.MATCHED ->
-                setOf(NAME, FIRST_NAME, LAST_NAME, AMOUNT, PHONE, PACKAGE, PURCHASE_LIMIT)
+                setOf(NAME, FIRST_NAME, LAST_NAME, AMOUNT, PHONE, MPESA_CODE, PACKAGE, PURCHASE_LIMIT)
             TemplateType.OFF_WINDOW ->
-                setOf(NAME, FIRST_NAME, LAST_NAME, AMOUNT, PHONE, PACKAGE, PURCHASE_WINDOW)
+                setOf(NAME, FIRST_NAME, LAST_NAME, AMOUNT, PHONE, MPESA_CODE, PACKAGE, PURCHASE_WINDOW)
         }
 
         /** Every `{token}`-shaped run in [body], recognised or not. */

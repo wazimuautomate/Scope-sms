@@ -60,6 +60,117 @@ restriction with its own third reply flow. See "🟢 v1.6.0" below.
 non-functional as shipped in v1.6.0 (wrong auth mode, not a URL bug). See
 "🔴🟢 HostPinnacle auth mode was wrong" immediately below.
 
+**Released 2026-08-07: v1.6.2 / versionCode 15** — `{mpesa_code}` template
+variable in all three flows, and a Settings/Messages redesign (client: "too
+wordy"). See "🟢 v1.6.2" below.
+
+---
+
+## 🟢 v1.6.2 (2026-08-07) — {mpesa_code} variable + Settings/Messages redesign
+
+Client, same session as the v1.6.1 HostPinnacle fix: add an M-Pesa-code
+template variable, and Settings had grown "too wordy" — de-clutter it into
+named sections, icon-ify what can be, hide Reset. Also asked for the Messages
+(Templates) screen to get the same treatment. Moved fast per the client's
+explicit urgency; scope stayed to what was asked (no functional changes to
+gateway/queue/parsing — UI and one new template variable only).
+
+### `{mpesa_code}` — new `TemplateVariable`, allowed in all three flows
+`MessageTemplate.kt`: `MPESA_CODE("{mpesa_code}")`, added to every
+`allowedFor()` set (the client's explicit ask — unlike `{package}` or
+`{bundle_list}`, there's no flow this doesn't make sense in). Value is
+`MpesaPayment.transactionCode` verbatim, wired through
+`PaymentProcessor.plan` at all three `TemplateEngine.*Values` call sites.
+
+**`mpesaCode: String = ""` is a defaulted trailing parameter on
+`unmatchedValues`/`matchedValues`/`offWindowValues`, not a required one** —
+same reasoning as `RuleSnapshot.classify`'s defaulted `minuteOfDay` in the
+v1.6.0 entry below: `TemplateEngineTest` alone had ~15 existing call sites
+(several positional), and a required parameter would have forced touching
+every one for a change that doesn't alter their behavior. Only the real
+caller (`PaymentProcessor`) and the Templates preview
+(`TemplatesViewModel.sampleValues`, `SAMPLE_MPESA_CODE`) pass a real value;
+every pre-existing test keeps compiling and passing untouched. 3 new tests
+added rather than touching the old ones.
+
+Deliberately **not** inserted into the default template bodies
+(`DefaultTemplates`) — the ask was "make it available," not "change what
+ships by default." It shows up as a chip (`TemplateVariable.allowedFor`
+already drives the Templates screen's chip row generically, so this needed
+no UI code change at all — confirms the closed-set design pays for itself
+again).
+
+### Settings redesign — sections, icons, Reset hidden
+Restructured into 5 card-sectioned groups per the client's exact list:
+Automatic Replies, SIM & Senders (merged what were two separate sections),
+SMS Gateway, General (Appearance + Staying Awake/background + OEM guidance
+merged), About & Reset. New `SectionCard` composable (title + card) replaces
+the old `SectionTitle` + bare content + `HorizontalDivider` pattern.
+
+**Wordiness cut at the string level**, not just moved around — several
+`settings_*` help strings were full sentences explaining things the section
+header + a short phrase already conveys (e.g. `settings_gateway_help` was
+removed outright; `settings_sim_help`, `settings_trusted_senders_help`,
+`settings_sender_id_help`, both battery strings, and all three toggle
+subtitles were shortened in place, same keys). `settings_reset_explain` was
+deleted — its content was already fully covered by the confirmation dialog's
+own body text, so keeping both was pure duplication.
+
+**Reset de-emphasized, not removed or weakened**: was its own
+`errorContainer`-filled red card with an explain paragraph; now a plain muted
+`TextButton` at the bottom of About & Reset. The confirmation `AlertDialog` —
+same title/body/confirm copy, same `viewModel.resetApp()` call — is
+completely unchanged; only the button that opens it lost its visual weight.
+
+**Appearance is now an icon `SingleChoiceSegmentedButtonRow`** (System/Light/
+Dark), matching the client's literal ask ("just toggle to moon or sun or
+system") and reusing the exact `SegmentedButton` pattern already proven in
+`RulesScreen.kt` (category/purchase-limit pickers) rather than inventing a
+new one. `icon = {}` passed explicitly to suppress `SegmentedButton`'s
+default checkmark-on-selected icon slot, since our own icon already marks
+selection.
+
+**🔴 Deliberately did NOT add `material-icons-extended` for sun/moon
+icons.** `gradle/libs.versions.toml` has a standing, *documented* decision
+(comment on `androidx-compose-material-icons-core`) to use only `-core`
+because `-extended` is "~10MB of vectors for a handful of icons" — and full
+inspection of the actual `-core` jar (`unzip -l` the transformed AAR in the
+Gradle cache) confirms it does NOT contain a sun/moon/clock icon of any
+kind (`AccessTime`/`Schedule`/`LightMode`/`DarkMode`/etc. all absent — full
+available list recorded in this session's transcript if ever needed again).
+Rather than add the 10MB dependency for 2 icons or revisit that past call
+under time pressure, built `SunIcon`/`MoonIcon` as tiny hand-coded `Canvas`
+composables (circle + 8 radiating lines for sun; a plain filled disc for
+"dark" — deliberately not a hand-authored crescent path, since a malformed
+vector path is a real crash risk with no way to verify off-device, whereas
+`drawCircle`/`drawLine` primitives cannot be malformed). "General"'s
+outside-hours toggle icon (`DateRange`) and the other two toggle icons
+(`AutoMirrored.List`, `ShoppingCart`) were chosen only after confirming each
+one is actually in the `-core` jar the same way — don't add an
+`Icons.Default.*` reference to this app without checking it's in that list
+first, the exact mistake this session almost made.
+
+### Messages (Templates) screen — same treatment, smaller scope
+Explainer strings shortened the same way as Settings (`tpl_*_explainer`,
+`tpl_preview_note`). Editor body + variable chips now sit inside one `Card`
+together (previously bare, floating in the tab's Column) — visually groups
+"what you're writing" with "what you can drop into it." No structural/nav
+changes — the tab-per-flow shape and the Robolectric crash-regression test
+(`TemplatesScreenTest`, see the 2026-07-16 entry) both stay exactly as they
+were; that test re-ran green against the new Card wrapper, confirming the
+one screen with a real device-crash history didn't regress.
+
+### Verified before shipping
+Local `compileDebugKotlin`: clean (one pre-existing, unrelated `TabRow`
+deprecation warning). Local `testDebugUnitTest`: 416 tests, 1 failure — the
+same pre-existing `ActivityLogRepositoryTest` JDK17-vs-Robolectric-SDK36 gap
+documented in the v1.6.0 entry, unrelated to this change. No Room schema
+change (no new persisted fields — the new template variable is computed at
+render time, not stored).
+
+### Version: 1.6.1 (14) → 1.6.2 (15)
+UI/feature release, no gateway or parsing changes.
+
 ---
 
 ## 🔴🟢 HostPinnacle auth mode was wrong — apikey header doesn't work on this account; userid+password does (2026-08-07)

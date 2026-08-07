@@ -1,18 +1,25 @@
 package com.tricreta.scopesms.ui.settings
 
+import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -22,10 +29,14 @@ import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,6 +47,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.LinkAnnotation
@@ -59,9 +74,18 @@ import com.tricreta.scopesms.telephony.SimInfo
 import com.tricreta.scopesms.ui.common.requestBatteryExemption
 import com.tricreta.scopesms.ui.reliability.OemGuidanceSection
 import com.tricreta.scopesms.ui.update.UpdateSection
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * Settings: which SIM, the gateway credentials, background reliability, version.
+ *
+ * Grouped into five cards — Automatic Replies, SIM & Senders, SMS Gateway,
+ * General, About & Reset — per the client's explicit ask to de-clutter what
+ * had grown into a long wall of section titles and paragraphs. Reset in
+ * particular is deliberately understated (a plain text button, not its own
+ * red card): it's a rare, destructive escape hatch, not something that should
+ * visually compete with the settings someone actually adjusts often.
  */
 @Composable
 fun SettingsScreen(
@@ -85,8 +109,9 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         // If the app force-closed, its stack trace is waiting here — surfaced at the
-        // very top so the agent can Share it to the developer. This is the only way
-        // to diagnose a crash that reproduces on their handset but not off-device.
+        // very top, above any section, so the agent can Share it to the developer.
+        // This is the only way to diagnose a crash that reproduces on their handset
+        // but not off-device.
         var crashReport by rememberSaveable { mutableStateOf(CrashReporter.lastReport(context)) }
         crashReport?.let { report ->
             CrashReportCard(
@@ -103,75 +128,32 @@ fun SettingsScreen(
                     crashReport = null
                 },
             )
-            HorizontalDivider()
         }
 
-        SectionTitle(stringResource(R.string.settings_replies))
-        RepliesSection(
-            toggles = state.toggles,
-            onUnmatchedChange = viewModel::setUnmatchedEnabled,
-            onMatchedChange = viewModel::setMatchedEnabled,
-            onOffWindowChange = viewModel::setOffWindowEnabled,
-        )
-
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_sim))
-        SimSection(
-            sims = state.sims,
-            selection = state.simSelection,
-            onSelect = viewModel::selectSims,
-        )
-
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_trusted_senders))
-        TrustedSendersSection(
-            senders = state.trustedSenders,
-            input = state.trustedSenderInput,
-            canAdd = state.canAddTrustedSender,
-            onInputChange = viewModel::updateTrustedSenderInput,
-            onAdd = viewModel::addTrustedSender,
-            onRemove = viewModel::removeTrustedSender,
-        )
-
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_gateway))
-        GatewaySection(state = state, viewModel = viewModel)
-
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_appearance))
-        ThemeSection(
-            selected = state.themePreference,
-            onSelect = viewModel::setThemePreference,
-        )
-
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_reliability))
-        BatterySection(
-            exempt = state.batteryExempt,
-            onRequest = { context.requestBatteryExemption(viewModel.batteryOptimization) },
-        )
-
-        state.oemGuidance?.let { guidance ->
-            OemGuidanceSection(
-                guidance = guidance,
-                canOpenSettings = viewModel.oemSettingsLauncher.hasDeepLink(),
-                onOpenSettings = { viewModel.oemSettingsLauncher.open(context) },
+        SectionCard(stringResource(R.string.settings_section_replies)) {
+            RepliesSection(
+                toggles = state.toggles,
+                onUnmatchedChange = viewModel::setUnmatchedEnabled,
+                onMatchedChange = viewModel::setMatchedEnabled,
+                onOffWindowChange = viewModel::setOffWindowEnabled,
             )
         }
 
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_about))
-        Text(
-            text = stringResource(R.string.settings_version, state.versionName, state.versionCode),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        // The in-app updater — its own ViewModel so the download is cancellable
-        // and it owns the install/permission launchers. See ui/update/.
-        UpdateSection(modifier = Modifier.fillMaxWidth())
+        SectionCard(stringResource(R.string.settings_section_sim_senders)) {
+            SimAndSendersSection(state = state, viewModel = viewModel)
+        }
 
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_reset))
-        ResetSection(onReset = { confirmReset = true })
+        SectionCard(stringResource(R.string.settings_gateway)) {
+            GatewaySection(state = state, viewModel = viewModel)
+        }
+
+        SectionCard(stringResource(R.string.settings_section_general)) {
+            GeneralSection(state = state, viewModel = viewModel, context = context)
+        }
+
+        SectionCard(stringResource(R.string.settings_section_about_reset)) {
+            AboutAndResetSection(state = state, onRequestReset = { confirmReset = true })
+        }
     }
 
     if (confirmReset) {
@@ -196,40 +178,16 @@ fun SettingsScreen(
     }
 }
 
-@Composable
-private fun SectionTitle(text: String) {
-    Text(text = text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-}
-
 /**
- * The "reset app" action — a red card that explains the wipe and a button that
- * opens the confirmation. Styled like [CrashReportCard] on purpose: it is
- * destructive and should read that way.
+ * One settings group, visually distinct as its own card — what makes the
+ * screen read as "sections" rather than one long scroll of labels.
  */
 @Composable
-private fun ResetSection(onReset: () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        ),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = stringResource(R.string.settings_reset_explain),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Button(
-                onClick = onReset,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                ),
-                modifier = Modifier.align(Alignment.End),
-            ) {
-                Text(stringResource(R.string.settings_reset))
-            }
+private fun SectionCard(title: String, content: @Composable () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(text = title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            content()
         }
     }
 }
@@ -286,18 +244,21 @@ private fun RepliesSection(
     onOffWindowChange: (Boolean) -> Unit,
 ) {
     ToggleRow(
+        icon = Icons.AutoMirrored.Filled.List,
         title = stringResource(R.string.toggle_unmatched_title),
         subtitle = stringResource(R.string.toggle_unmatched_subtitle),
         checked = toggles.unmatchedReplyEnabled,
         onCheckedChange = onUnmatchedChange,
     )
     ToggleRow(
+        icon = Icons.Filled.ShoppingCart,
         title = stringResource(R.string.toggle_matched_title),
         subtitle = stringResource(R.string.toggle_matched_subtitle),
         checked = toggles.matchedReplyEnabled,
         onCheckedChange = onMatchedChange,
     )
     ToggleRow(
+        icon = Icons.Filled.DateRange,
         title = stringResource(R.string.toggle_off_window_title),
         subtitle = stringResource(R.string.toggle_off_window_subtitle),
         checked = toggles.offWindowReplyEnabled,
@@ -307,53 +268,57 @@ private fun RepliesSection(
 
 @Composable
 private fun ToggleRow(
+    icon: ImageVector,
     title: String,
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(text = title, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Column(Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
-/** Light / dark / follow-the-phone. Defaults to system. */
+/** Which SIM to read, and any extra trusted M-Pesa sender IDs — one merged section. */
 @Composable
-private fun ThemeSection(
-    selected: ThemePreference,
-    onSelect: (ThemePreference) -> Unit,
-) {
-    val options = listOf(
-        ThemePreference.SYSTEM to R.string.settings_theme_system,
-        ThemePreference.LIGHT to R.string.settings_theme_light,
-        ThemePreference.DARK to R.string.settings_theme_dark,
+private fun SimAndSendersSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    SimSection(
+        sims = state.sims,
+        selection = state.simSelection,
+        onSelect = viewModel::selectSims,
     )
-    options.forEach { (preference, labelRes) ->
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .selectable(selected = selected == preference, onClick = { onSelect(preference) })
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RadioButton(selected = selected == preference, onClick = { onSelect(preference) })
-            Text(text = stringResource(labelRes), style = MaterialTheme.typography.bodyLarge)
-        }
-    }
+
+    HorizontalDivider()
+
+    Text(
+        text = stringResource(R.string.settings_trusted_senders),
+        style = MaterialTheme.typography.labelLarge,
+    )
+    TrustedSendersSection(
+        senders = state.trustedSenders,
+        input = state.trustedSenderInput,
+        canAdd = state.canAddTrustedSender,
+        onInputChange = viewModel::updateTrustedSenderInput,
+        onAdd = viewModel::addTrustedSender,
+        onRemove = viewModel::removeTrustedSender,
+    )
 }
 
 @Composable
@@ -362,6 +327,11 @@ private fun SimSection(
     selection: SimSelection,
     onSelect: (SimSelection) -> Unit,
 ) {
+    Text(
+        text = stringResource(R.string.settings_sim),
+        style = MaterialTheme.typography.labelLarge,
+    )
+
     if (sims.isEmpty()) {
         Text(
             text = stringResource(R.string.settings_sim_none),
@@ -473,10 +443,10 @@ private fun SimOption(label: String, selected: Boolean, onClick: () -> Unit) {
  * Points a new agent at where the currently-selected gateway account actually
  * comes from. BlazeTech keeps its existing direct API-keys link; HostPinnacle
  * links to their portal, where the agent's userid+password login lives (not
- * an API key — see [GatewayCredentials.userId]'s doc for why this app uses
- * that auth mode instead of the header-based one HostPinnacle also offers).
- * Without this, the credential fields have nothing to type into them and no
- * indication of where the values come from.
+ * an API key — see [com.tricreta.scopesms.network.GatewayCredentials.userId]'s
+ * doc for why this app uses that auth mode instead of the header-based one
+ * HostPinnacle also offers). Without this, the credential fields have nothing
+ * to type into them and no indication of where the values come from.
  */
 @Composable
 private fun ApiKeySignupHint(provider: GatewayProvider) {
@@ -511,10 +481,10 @@ private fun ApiKeySignupHint(provider: GatewayProvider) {
 
 /**
  * Which SMS gateway is active — BlazeTech (the original, still live in
- * production) or HostPinnacle. Each has its own API key + sender ID, entered
- * and saved independently ([GatewaySection] below); switching here never
- * loses or overwrites the other provider's saved credentials (CLAUDE.md,
- * "SMS Gateway Integration").
+ * production) or HostPinnacle. Each has its own credentials + sender ID,
+ * entered and saved independently ([GatewaySection] below); switching here
+ * never loses or overwrites the other provider's saved credentials
+ * (CLAUDE.md, "SMS Gateway Integration").
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -569,11 +539,6 @@ private fun GatewaySection(state: SettingsUiState, viewModel: SettingsViewModel)
         onSelect = viewModel::selectGatewayProvider,
     )
 
-    Text(
-        text = stringResource(R.string.settings_gateway_help),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
     ApiKeySignupHint(state.activeGatewayProvider)
     Text(
         text = stringResource(R.string.settings_gateway_balance),
@@ -652,11 +617,13 @@ private fun GatewaySection(state: SettingsUiState, viewModel: SettingsViewModel)
         }
     }
 
+    HorizontalDivider()
+
     // The test send is the only way to find out that a sender ID isn't
     // registered before a real customer is waiting on the reply.
     Text(
         text = stringResource(R.string.settings_test_title),
-        style = MaterialTheme.typography.titleSmall,
+        style = MaterialTheme.typography.labelLarge,
     )
     OutlinedTextField(
         value = testPhone,
@@ -711,6 +678,128 @@ private fun TestResult(state: TestSendState, onDismiss: () -> Unit) {
     }
 }
 
+/** Theme (icon picker) + background reliability — the "keep it running right" basics. */
+@Composable
+private fun GeneralSection(
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+    context: Context,
+) {
+    Text(text = stringResource(R.string.settings_appearance), style = MaterialTheme.typography.labelLarge)
+    ThemeSection(selected = state.themePreference, onSelect = viewModel::setThemePreference)
+
+    HorizontalDivider()
+
+    Text(text = stringResource(R.string.settings_reliability), style = MaterialTheme.typography.labelLarge)
+    BatterySection(
+        exempt = state.batteryExempt,
+        onRequest = { context.requestBatteryExemption(viewModel.batteryOptimization) },
+    )
+
+    state.oemGuidance?.let { guidance ->
+        OemGuidanceSection(
+            guidance = guidance,
+            canOpenSettings = viewModel.oemSettingsLauncher.hasDeepLink(),
+            onOpenSettings = { viewModel.oemSettingsLauncher.open(context) },
+        )
+    }
+}
+
+/**
+ * System / Light / Dark as three icon segments instead of a labelled radio
+ * list — the client's explicit ask ("just toggle to moon or sun or system").
+ * Each segment still carries a one-word caption so the icon alone doesn't
+ * have to carry all the meaning.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThemeSection(
+    selected: ThemePreference,
+    onSelect: (ThemePreference) -> Unit,
+) {
+    val options = listOf(
+        ThemePreference.SYSTEM to R.string.settings_theme_system,
+        ThemePreference.LIGHT to R.string.settings_theme_light,
+        ThemePreference.DARK to R.string.settings_theme_dark,
+    )
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        options.forEachIndexed { index, (preference, labelRes) ->
+            SegmentedButton(
+                selected = selected == preference,
+                onClick = { onSelect(preference) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                // Suppresses the default checkmark-on-selected icon slot — our
+                // own icon below already communicates the selection.
+                icon = {},
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    ThemeIcon(preference)
+                    Text(stringResource(labelRes))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeIcon(preference: ThemePreference) {
+    when (preference) {
+        ThemePreference.SYSTEM -> Icon(
+            imageVector = Icons.Filled.Settings,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+        )
+        ThemePreference.LIGHT -> SunIcon(modifier = Modifier.size(18.dp))
+        ThemePreference.DARK -> MoonIcon(modifier = Modifier.size(18.dp))
+    }
+}
+
+/**
+ * A minimal sun glyph (filled circle + 8 rays) drawn with [Canvas] primitives
+ * rather than a bundled icon: `material-icons-core` (this app's deliberate,
+ * documented choice — see `gradle/libs.versions.toml` — to avoid the ~10MB
+ * `-extended` artifact) has no sun/moon icon at all. A hand-drawn path would
+ * risk a malformed-path crash with no easy way to verify off-device; circles
+ * and lines can't be malformed.
+ */
+@Composable
+private fun SunIcon(modifier: Modifier = Modifier, tint: Color = MaterialTheme.colorScheme.onSurface) {
+    Canvas(modifier = modifier) {
+        val ringRadius = size.minDimension * 0.22f
+        drawCircle(color = tint, radius = ringRadius, center = center)
+        val rayInner = ringRadius + size.minDimension * 0.08f
+        val rayOuter = rayInner + size.minDimension * 0.16f
+        for (i in 0 until 8) {
+            val angle = Math.toRadians((i * 45).toDouble())
+            val dx = cos(angle).toFloat()
+            val dy = sin(angle).toFloat()
+            drawLine(
+                color = tint,
+                start = Offset(center.x + dx * rayInner, center.y + dy * rayInner),
+                end = Offset(center.x + dx * rayOuter, center.y + dy * rayOuter),
+                strokeWidth = size.minDimension * 0.07f,
+                cap = StrokeCap.Round,
+            )
+        }
+    }
+}
+
+/**
+ * A plain filled disc for "dark" — deliberately not a hand-drawn crescent
+ * (same crash-risk reasoning as [SunIcon]). Paired with the always-visible
+ * "Dark" caption and the rayed sun right next to it, a plain dot reads
+ * clearly as "not-sun" without needing a literal crescent outline.
+ */
+@Composable
+private fun MoonIcon(modifier: Modifier = Modifier, tint: Color = MaterialTheme.colorScheme.onSurface) {
+    Canvas(modifier = modifier) {
+        drawCircle(color = tint, radius = size.minDimension * 0.32f, center = center)
+    }
+}
+
 @Composable
 private fun BatterySection(exempt: Boolean, onRequest: () -> Unit) {
     Card(
@@ -741,5 +830,34 @@ private fun BatterySection(exempt: Boolean, onRequest: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/**
+ * Version/update info, plus the reset action.
+ *
+ * Reset is a plain, muted text button at the bottom — not its own red card.
+ * It's a rare, destructive, "things got messy" escape hatch (still behind the
+ * same scary confirmation dialog), and giving it card-level visual weight
+ * made it read as if it were a normal, everyday setting.
+ */
+@Composable
+private fun AboutAndResetSection(state: SettingsUiState, onRequestReset: () -> Unit) {
+    Text(
+        text = stringResource(R.string.settings_version, state.versionName, state.versionCode),
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    // The in-app updater — its own ViewModel so the download is cancellable
+    // and it owns the install/permission launchers. See ui/update/.
+    UpdateSection(modifier = Modifier.fillMaxWidth())
+
+    HorizontalDivider()
+
+    TextButton(onClick = onRequestReset) {
+        Text(
+            text = stringResource(R.string.settings_reset),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
