@@ -1,9 +1,9 @@
 {
-  "versionCode": 14,
-  "versionName": "1.6.1",
-  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/504751459",
-  "sha256": "6664845cc522e92aa64950c55d93644b2f8bed72ad05c9df126e870b974e696c",
-  "releaseNotes": "v1.6.1 — HostPinnacle auth-mode fix (userid+password, not apikey header)",
+  "versionCode": 15,
+  "versionName": "1.6.2",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/504820344",
+  "sha256": "d112ffdf4a28b3c4bf91c23741c90c884569b2542ff1166d2ae0c56df7654327",
+  "releaseNotes": "v1.6.2 — {mpesa_code} template variable + Settings/Messages redesign",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
