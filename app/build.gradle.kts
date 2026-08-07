@@ -64,8 +64,8 @@ android {
         // com.tricreta.scopesms identity. Bug fix → 1.0.1 (code 2); backward-
         // compatible feature → 1.1.0; major/breaking → 2.0.0. versionCode only
         // ever increases.
-        versionCode = 13
-        versionName = "1.6.0"
+        versionCode = 14
+        versionName = "1.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

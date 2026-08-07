@@ -5,13 +5,27 @@ package com.tricreta.scopesms.network
  *
  * These are secrets (CLAUDE.md constraint 7): never hardcoded, never committed,
  * never logged in plaintext.
+ *
+ * @param apiKey [BlazeTechGateway]'s API key. For [HostPinnacleGateway] this
+ *   field holds the account **password** instead — verified live (2026-08-07)
+ *   that HostPinnacle's apikey-header auth mode does not authenticate this
+ *   client's account at all, while its userid+password mode does; see
+ *   [userId]. Reusing this field rather than adding a separate `password`
+ *   field keeps [GatewayCredentialsStore]'s per-provider storage to one shape
+ *   ("the provider's one secret, plus a sender ID, plus an optional login
+ *   name") instead of a field that's meaningful for one provider and dead for
+ *   the other.
+ * @param userId HostPinnacle's `userid` — paired with [apiKey] (the
+ *   password) in the request body, per their documented userid+password auth
+ *   mode. Always `null` for [BlazeTechGateway], which has no such concept.
  */
 data class GatewayCredentials(
     val apiKey: String,
     val senderId: String,
+    val userId: String? = null,
 ) {
-    /** Guards against the key reaching logcat via a stack trace or a stray log call. */
-    override fun toString(): String = "GatewayCredentials(senderId=$senderId, apiKey=***)"
+    /** Guards against the key/password reaching logcat via a stack trace or a stray log call. */
+    override fun toString(): String = "GatewayCredentials(senderId=$senderId, userId=$userId, apiKey=***)"
 }
 
 /**

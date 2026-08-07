@@ -58,16 +58,21 @@ data class SettingsUiState(
     val blazeTechSenderId: String = "",
     val hostPinnacleConfigured: Boolean = false,
     val hostPinnacleSenderId: String = "",
+    // HostPinnacle-only — its account auth is username+password, not an API
+    // key (verified live 2026-08-07; see GatewayCredentials.userId). Always
+    // "" for BlazeTech, which has no such field and never shows one.
+    val hostPinnacleUserId: String = "",
     // Extra sender addresses whitelisted to be read as M-Pesa confirmations,
     // beyond the official shortcode — e.g. the agent's own SKYSCOPE_ number
     // when it resells a service that texts the same till-confirmation format.
     val trustedSenders: Set<String> = emptySet(),
     val trustedSenderInput: String = "",
+    val usernameInput: String = "",
     val apiKeyInput: String = "",
-    // The client's default, for BlazeTech only. Most agents send under
-    // SKYSCOPE_, so pre-fill it — they can still overwrite it. Applied only
-    // until a stored value loads, or reset here on a provider switch — see
-    // SettingsViewModel.defaultSenderIdInputFor.
+    // The client's default for BOTH providers — most agents send under
+    // SKYSCOPE_ everywhere, so pre-fill it on each; they can still overwrite
+    // it. Applied only until a stored value loads, or reset to this same
+    // default on a provider switch (selectGatewayProvider / clearGateway).
     val senderIdInput: String = DEFAULT_SENDER_ID,
     val saveFailed: Boolean = false,
     val testSend: TestSendState = TestSendState.Idle,
@@ -100,8 +105,12 @@ data class SettingsUiState(
      */
     val maskedApiKey: String get() = if (gatewayConfigured) "••••••••••••" else ""
 
+    /** HostPinnacle only — see [hostPinnacleUserId]. */
+    val showUsernameField: Boolean get() = activeGatewayProvider == GatewayProvider.HOSTPINNACLE
+
     val canSaveGateway: Boolean
-        get() = apiKeyInput.isNotBlank() && senderIdInput.isNotBlank()
+        get() = apiKeyInput.isNotBlank() && senderIdInput.isNotBlank() &&
+            (!showUsernameField || usernameInput.isNotBlank())
 
     val canTestSend: Boolean get() = gatewayConfigured && testSend !is TestSendState.Sending
 
@@ -144,7 +153,8 @@ class SettingsViewModel(
                         state.copy(
                             activeGatewayProvider = provider,
                             apiKeyInput = "",
-                            senderIdInput = defaultSenderIdInputFor(provider),
+                            usernameInput = "",
+                            senderIdInput = DEFAULT_SENDER_ID,
                             saveFailed = false,
                             testSend = TestSendState.Idle,
                         )
@@ -152,7 +162,7 @@ class SettingsViewModel(
                 }
             }
         }
-        // Five flows total for gateway state (this one plus the four below),
+        // Six flows total for gateway state (this one plus the five below),
         // replacing the single-provider isConfigured/senderId pair the app had
         // before dual-gateway support.
         viewModelScope.launch {
@@ -187,6 +197,20 @@ class SettingsViewModel(
                     val updated = state.copy(hostPinnacleSenderId = id.orEmpty())
                     if (state.activeGatewayProvider == GatewayProvider.HOSTPINNACLE && !id.isNullOrBlank()) {
                         updated.copy(senderIdInput = id)
+                    } else {
+                        updated
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            container.gatewayCredentials.userId(GatewayProvider.HOSTPINNACLE).collect { userId ->
+                _uiState.update { state ->
+                    val updated = state.copy(hostPinnacleUserId = userId.orEmpty())
+                    // Same rule as senderId above: a stored value wins over the
+                    // input, but only while HostPinnacle is the active provider.
+                    if (state.activeGatewayProvider == GatewayProvider.HOSTPINNACLE && !userId.isNullOrBlank()) {
+                        updated.copy(usernameInput = userId)
                     } else {
                         updated
                     }
@@ -271,6 +295,11 @@ class SettingsViewModel(
         _uiState.update { it.copy(apiKeyInput = value, saveFailed = false) }
     }
 
+    /** HostPinnacle only — see [SettingsUiState.showUsernameField]. */
+    fun updateUsernameInput(value: String) {
+        _uiState.update { it.copy(usernameInput = value, saveFailed = false) }
+    }
+
     fun updateSenderIdInput(value: String) {
         _uiState.update { it.copy(senderIdInput = value, saveFailed = false) }
     }
@@ -290,7 +319,8 @@ class SettingsViewModel(
             it.copy(
                 activeGatewayProvider = provider,
                 apiKeyInput = "",
-                senderIdInput = defaultSenderIdInputFor(provider),
+                usernameInput = "",
+                senderIdInput = DEFAULT_SENDER_ID,
                 saveFailed = false,
                 testSend = TestSendState.Idle,
             )
@@ -309,14 +339,18 @@ class SettingsViewModel(
                 GatewayCredentials(
                     apiKey = state.apiKeyInput.trim(),
                     senderId = state.senderIdInput.trim(),
+                    userId = state.usernameInput.trim().takeIf { state.showUsernameField },
                 ),
             )
             _uiState.update {
                 it.copy(
-                    // Clear the key from UI state on success. It stays in the
-                    // encrypted store; keeping a copy in a ViewModel that
-                    // survives backgrounding just widens the blast radius.
+                    // Clear the secret fields from UI state on success. They stay
+                    // in the encrypted store; keeping a copy in a ViewModel that
+                    // survives backgrounding just widens the blast radius. The
+                    // username isn't a secret, but it's cleared alongside for the
+                    // same "input reflects nothing pending" reasoning.
                     apiKeyInput = if (saved) "" else it.apiKeyInput,
+                    usernameInput = if (saved) "" else it.usernameInput,
                     saveFailed = !saved,
                     testSend = TestSendState.Idle,
                 )
@@ -331,18 +365,14 @@ class SettingsViewModel(
             _uiState.update {
                 it.copy(
                     apiKeyInput = "",
-                    senderIdInput = defaultSenderIdInputFor(provider),
+                    usernameInput = "",
+                    senderIdInput = DEFAULT_SENDER_ID,
                     testSend = TestSendState.Idle,
                 )
             }
         }
     }
 
-    /** BlazeTech's prefill is the client's default; HostPinnacle's is blank — see the class doc. */
-    private fun defaultSenderIdInputFor(provider: GatewayProvider): String = when (provider) {
-        GatewayProvider.BLAZETECH -> DEFAULT_SENDER_ID
-        GatewayProvider.HOSTPINNACLE -> ""
-    }
 
     /**
      * Wipes the app back to a first-install state and restarts it — the agent's

@@ -4,6 +4,43 @@ Dated, terse session outcomes. Not a copy of git log.
 
 ---
 
+## 2026-08-07 — v1.6.1: HostPinnacle was shipped with the wrong auth mode; fixed
+
+Branch `fix/hostpinnacle-invalid-credentials-classification` → `main`. Client
+report: HostPinnacle test-send in Settings failed with "Invalid credentials."
+Asked to fix the URL endpoint — the URL was already correct.
+
+Root-caused by calling the live HostPinnacle endpoint directly, bypassing the
+app: the exact request the app sends reproduces the client's error, and two
+separate real API keys the client generated both fail identically to a
+bogus string. The docs describe a second auth mode (`userid`+`password` as
+body fields, not the `apikey` header); tested live with the client's real
+account credentials — authenticates immediately, and a real test SMS was
+sent to the client's phone and confirmed received.
+
+**This account only works via userid+password. The apikey-header mode —
+what v1.6.0 shipped — never worked, for any key, from day one.** Switched
+HostPinnacle's auth end to end: `GatewayCredentials` gained an optional
+`userId`; `HostPinnacleApi`/`HostPinnacleGateway` send `userid`+`password`
+body fields instead of the `apikey` header; `GatewayCredentialsStore` gained
+a third per-provider encrypted field; Settings now shows a Username field
+for HostPinnacle (client's explicit spec: username, password, sender ID
+defaulted to `SKYSCOPE_`) instead of just an API key. BlazeTech is
+completely unaffected. Also fixed a smaller real bug found along the way:
+HostPinnacle's exact "Invalid credentials" wording wasn't classified by
+`SendSmsResponseInterpreter`, so it read as a confusing generic error instead
+of a clear "Invalid API key" one.
+
+CLAUDE.md, both READMEs, and the test suite updated to match. Full
+investigation trail (the request-shape proof, the username typo that turned
+out to be a red herring, which two accounts authenticate) is in `memory.md`.
+
+### Version: 1.6.0 (13) → 1.6.1 (14)
+Bug-fix release — HostPinnacle goes from completely non-functional to
+verified working end-to-end (real SMS delivered and confirmed).
+
+---
+
 ## 2026-08-06 — v1.6.0: HostPinnacle as a second SMS gateway + bundle purchase-window/off-window flow
 
 Branch `feature/hostpinnacle-and-purchase-windows` → `main`. Two client

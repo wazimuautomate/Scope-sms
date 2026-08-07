@@ -21,8 +21,9 @@ import retrofit2.converter.moshi.MoshiConverterFactory
  * Retrofit call, sharing [SendSmsResponseInterpreter] because the two gateways'
  * responses are verified to be byte-for-byte the same shape. The two real
  * differences are the request encoding (form fields here, JSON for BlazeTech)
- * and auth (an `apikey` header here, an in-body field for BlazeTech) — both
- * confined to [HostPinnacleApi] and this class.
+ * and auth (`userid`+`password` body fields here — see [HostPinnacleApi]'s doc
+ * for why not the `apikey` header — vs. an in-body key field for BlazeTech) —
+ * both confined to [HostPinnacleApi] and this class.
  *
  * This runs inside a WorkManager worker, never the SMS receiver: a slow call
  * here must never delay ingestion (CLAUDE.md constraint 5).
@@ -45,6 +46,8 @@ class HostPinnacleGateway internal constructor(
     ): SendOutcome {
         val credentials = credentialsProvider.credentials()
             ?: return SendOutcome.Failed(SendFailure.InvalidApiKey)
+        val userId = credentials.userId
+            ?: return SendOutcome.Failed(SendFailure.InvalidApiKey)
 
         val internationalPhone = PhoneNumbers.toInternationalFormat(phone)
             ?: return SendOutcome.Failed(SendFailure.InvalidPhone(phone))
@@ -52,7 +55,8 @@ class HostPinnacleGateway internal constructor(
         return try {
             interpret(
                 api.sendSms(
-                    apiKey = credentials.apiKey,
+                    userId = userId,
+                    password = credentials.apiKey,
                     mobile = internationalPhone,
                     message = message,
                     senderId = senderId ?: credentials.senderId,
@@ -83,12 +87,15 @@ class HostPinnacleGateway internal constructor(
     override suspend fun checkStatus(messageId: String): DeliveryStatusOutcome {
         val credentials = credentialsProvider.credentials()
             ?: return DeliveryStatusOutcome.Failed("Gateway not set up")
+        val userId = credentials.userId
+            ?: return DeliveryStatusOutcome.Failed("Gateway not set up")
 
         val today = LocalDate.now()
         return try {
             interpretStatus(
                 api.checkStatus(
-                    apiKey = credentials.apiKey,
+                    userId = userId,
+                    password = credentials.apiKey,
                     uuid = messageId,
                     // A generous few-day window: this is checked shortly after
                     // a real send, not run as a historical report.
@@ -160,9 +167,9 @@ class HostPinnacleGateway internal constructor(
         }
 
         /**
-         * No logging interceptor, deliberately. The API key travels in a request
-         * header, and the form body carries the message text — either would land
-         * in logcat under a BODY/HEADERS-level interceptor (constraint 7).
+         * No logging interceptor, deliberately. The form body carries the
+         * password and the message text — either would land in logcat under a
+         * BODY-level interceptor (constraint 7).
          */
         private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)

@@ -118,7 +118,12 @@ internal object SendSmsResponseInterpreter {
     private fun classifyErrorMessage(message: String?): SendFailure? {
         val text = message?.lowercase()?.trim() ?: return null
         return when {
-            text.contains("api key") || text.contains("apikey") -> SendFailure.InvalidApiKey
+            // "credential" catches HostPinnacle's real live text (verified
+            // 2026-08-07: HTTP 200, statusCode "216", reason "Invalid
+            // credentials") — without it this fell through to Unexpected,
+            // which reads like an app bug rather than a wrong/inactive key.
+            text.contains("api key") || text.contains("apikey") || text.contains("credential") ->
+                SendFailure.InvalidApiKey
             text.contains("sender") -> SendFailure.UnregisteredSenderId
             text.contains("balance") || text.contains("insufficient") ->
                 SendFailure.InsufficientBalance

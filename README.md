@@ -21,7 +21,7 @@ sender ID, which is a real deliverability/ban risk with SMS gateways.
 
 Reading happens **on the phone, offline**. Sending goes through one of two
 gateways, agent-selectable in Settings — **BlazeTech** or **HostPinnacle** —
-each with its own API key and sender ID, not the phone's SIM.
+each with its own credentials and sender ID, not the phone's SIM.
 
 ---
 
@@ -79,12 +79,15 @@ or just install a newer `.apk` over the top.
 1. **Permissions** — needed to read incoming SMS at all.
 2. **SIM** — pick the SIM your till confirmations arrive on. The other SIM's
    messages are never even read.
-3. **Gateway** — pick BlazeTech or HostPinnacle from the dropdown, enter that
-   provider's API key and sender ID, then **send a test message to your own
-   number**. Do not skip this: an unregistered sender ID is an account problem
-   on the gateway's side that the app cannot fix, and this is where you find
-   out. Each provider remembers its own key — switching the dropdown later
-   doesn't lose the other one's.
+3. **Gateway** — pick BlazeTech or HostPinnacle from the dropdown, then enter
+   that provider's credentials and sender ID: BlazeTech asks for an **API
+   key**; HostPinnacle asks for a **username and password** (its account
+   login, not an API key — see `memory.md`'s 2026-08-07 entry for why). Then
+   **send a test message to your own number**. Do not skip this: an
+   unregistered sender ID is an account problem on the gateway's side that
+   the app cannot fix, and this is where you find out. Each provider
+   remembers its own credentials — switching the dropdown later doesn't lose
+   the other one's.
 4. **Battery** — allow background activity, or the phone will close the app and
    payments will be missed while the screen is off.
 5. **Add your bundle prices** under **Prices**. Until you do, Scope SMS stays

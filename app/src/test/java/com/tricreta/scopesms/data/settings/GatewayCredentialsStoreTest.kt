@@ -132,6 +132,52 @@ class GatewayCredentialsStoreTest {
     }
 
     @Test
+    fun `userId round-trips for HostPinnacle and stays null for BlazeTech`() = runTest {
+        store.save(GatewayProvider.BLAZETECH, GatewayCredentials("bt-key", "BT_SENDER"))
+        store.save(
+            GatewayProvider.HOSTPINNACLE,
+            GatewayCredentials(apiKey = "hp-password", senderId = "HP_SENDER", userId = "hp-user"),
+        )
+
+        assertThat(store.credentials(GatewayProvider.HOSTPINNACLE))
+            .isEqualTo(GatewayCredentials(apiKey = "hp-password", senderId = "HP_SENDER", userId = "hp-user"))
+        assertThat(store.userId(GatewayProvider.HOSTPINNACLE).first()).isEqualTo("hp-user")
+
+        // BlazeTech never has a userid — no legacy fallback exists for it, and
+        // this save didn't provide one.
+        assertThat(store.credentials(GatewayProvider.BLAZETECH))
+            .isEqualTo(GatewayCredentials("bt-key", "BT_SENDER"))
+        assertThat(store.userId(GatewayProvider.BLAZETECH).first()).isNull()
+    }
+
+    @Test
+    fun `clear(HOSTPINNACLE) removes its saved userId`() = runTest {
+        store.save(
+            GatewayProvider.HOSTPINNACLE,
+            GatewayCredentials(apiKey = "hp-password", senderId = "HP_SENDER", userId = "hp-user"),
+        )
+
+        store.clear(GatewayProvider.HOSTPINNACLE)
+
+        assertThat(store.userId(GatewayProvider.HOSTPINNACLE).first()).isNull()
+        assertThat(store.credentials(GatewayProvider.HOSTPINNACLE)).isNull()
+    }
+
+    @Test
+    fun `re-saving HostPinnacle without a userId clears the previously saved one`() = runTest {
+        store.save(
+            GatewayProvider.HOSTPINNACLE,
+            GatewayCredentials(apiKey = "hp-password", senderId = "HP_SENDER", userId = "hp-user"),
+        )
+
+        // Simulates re-saving through a hypothetical path with no username —
+        // the stale userid must not linger and get sent under a new save.
+        store.save(GatewayProvider.HOSTPINNACLE, GatewayCredentials(apiKey = "hp-password-2", senderId = "HP_SENDER"))
+
+        assertThat(store.userId(GatewayProvider.HOSTPINNACLE).first()).isNull()
+    }
+
+    @Test
     fun `scopedTo binds a GatewayCredentialsProvider to exactly one provider`() = runTest {
         store.save(GatewayProvider.BLAZETECH, GatewayCredentials("bt-key", "BT_SENDER"))
         store.save(GatewayProvider.HOSTPINNACLE, GatewayCredentials("hp-key", "HP_SENDER"))

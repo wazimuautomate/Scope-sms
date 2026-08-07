@@ -56,6 +56,128 @@ gateway signup/balance hints. See the dated section below the Play Store one.
 selectable SMS gateway alongside BlazeTech, plus a per-bundle purchase-window
 restriction with its own third reply flow. See "🟢 v1.6.0" below.
 
+**Fixed 2026-08-07: v1.6.1 / versionCode 14** — HostPinnacle was completely
+non-functional as shipped in v1.6.0 (wrong auth mode, not a URL bug). See
+"🔴🟢 HostPinnacle auth mode was wrong" immediately below.
+
+---
+
+## 🔴🟢 HostPinnacle auth mode was wrong — apikey header doesn't work on this account; userid+password does (2026-08-07)
+
+**The client's report:** testing HostPinnacle in Settings gave "Unexpected
+gateway response: no success signal: Invalid credentials." Asked to "change
+the URL endpoint" to `https://smsportal.hostpinnacle.co.ke/SMSApi/send` — that
+URL was **already** exactly correct (`HostPinnacleGateway.BASE_URL` +
+`@POST("send")`). The bug was never the URL.
+
+**Root-caused by calling the live endpoint directly** (curl, bypassing the
+app entirely) — same rigor as the 2026-07-16 gateway false-failure entry
+below. Confirmed conclusively, in this order:
+1. The exact request the app sends (form fields, `apikey` header) reproduced
+   the client's exact error live: `{"status":"error","statusCode":"216",
+   "reason":"Invalid credentials"}` over HTTP 200.
+2. Omitting the `apikey` header entirely gave a **different** error
+   ("Parameter userid required") — proving the server does recognize the
+   apikey-header auth mode structurally; it's specifically rejecting the
+   value.
+3. **Two separate real API keys** the client generated on the HostPinnacle
+   portal both failed identically to an outright bogus string. Two different
+   real keys failing the same way, with the request proven correctly formed,
+   pointed at auth *mode*, not a typo.
+4. The client found HostPinnacle's own docs describing a second auth mode:
+   `userid`+`password` as body fields. Tested live with real portal
+   credentials (`userid=tricreta` — note: the client had been typing
+   `triceta`, missing the middle `r`, every time before this; that typo is
+   *not* why the apikey mode failed, since header auth doesn't involve a
+   userid at all — it was a red herring the docs discovery accidentally
+   fixed at the same time) → error changed to `203 "Given SenderId is
+   invalid"` — a **later** validation stage. Credentials now authenticate.
+5. Retried with the account's real sender ID (`SKYSCOPE_`, via a *different*
+   HostPinnacle account: `userid=skywaves`) → `{"status":"success",
+   "transactionId":"2748476801294353393",...}`. Real SMS delivered to the
+   client's phone, confirmed by them.
+
+**Conclusion: this HostPinnacle account only authenticates via
+userid+password. The apikey-header mode — which is what v1.6.0 shipped, on
+the assumption from HostPinnacle's docs that apikey-only was sufficient (see
+the v1.6.0 entry below, "confirmed the already-in-flight implementation
+needed no change") — never worked, for any key, from the day it shipped.**
+That assumption was reasonable given the docs and the client's portal sample
+code at the time, but was never verified against a live send until this
+session. Lesson reinforced (same one the 2026-07-16 gateway entry already
+teaches): a gateway's documented contract being internally consistent is not
+the same as it being what a specific account actually has enabled — verify
+live before trusting docs on anything auth-shaped, even when nothing
+"looks" wrong in code review.
+
+### The fix — switched HostPinnacle from apikey-header to userid+password body auth
+- `GatewayCredentials` gained `userId: String? = null` (trailing, defaulted —
+  every existing 2-arg call site across ~6 test files kept compiling
+  unchanged). **`apiKey` now holds the account PASSWORD for HostPinnacle**
+  specifically (paired with `userId`); still the real API key for BlazeTech.
+  Reusing the field rather than adding a `password` field keeps the store's
+  per-provider shape to one pattern ("the provider's one secret + a sender
+  ID + an optional login name") instead of a field that's live for one
+  provider and dead for the other. Documented prominently on the class, since
+  a field silently meaning two different things per provider is exactly the
+  kind of thing this codebase's own KDoc conventions exist to flag.
+- `HostPinnacleApi.sendSms`/`checkStatus`: removed `@Header("apikey")`,
+  added `@Field("userid")`/`@Field("password")`. `HostPinnacleGateway`: reads
+  `credentials.userId` (new guard: null → terminal `InvalidApiKey`, same as
+  a missing key) and `credentials.apiKey` (as the password).
+- `GatewayCredentialsStore`: third per-provider DataStore key
+  (`gateway_user_id_<provider>`, no legacy fallback — HostPinnacle never
+  existed before this feature existed, let alone a userid). New `userId(
+  provider): Flow<String?>` mirrors `senderId`'s. `credentials()` decrypts it
+  best-effort; a present-but-corrupt userid clears the whole provider exactly
+  like a corrupt apiKey/senderId already did (never silently drop to a blank
+  userid — that would send HostPinnacle a real password with an empty
+  username, a confusing half-failure). `save`/`clear` handle the third key;
+  saving with `userId = null` removes any previously-stored one.
+- **Settings UI, per the client's explicit spec** ("when hostpinnacle is
+  selected, it should give option to put the username, password and sender
+  id(defaulted to the skyscope one)"): a Username field appears only for
+  HostPinnacle (`SettingsUiState.showUsernameField`); the secret field
+  relabels API key ↔ Password per provider; `canSaveGateway` requires the
+  username too when HostPinnacle is active — this is what actually
+  guarantees `GatewayCredentialsStore` never ends up with a HostPinnacle
+  password and no userid outside of hand-constructed test fixtures, so
+  `isConfigured` didn't need its own HostPinnacle-specific userid check.
+  `DEFAULT_SENDER_ID` (`SKYSCOPE_`) now prefills for **both** providers —
+  before this fix HostPinnacle prefilled blank.
+- Tests: rewrote `HostPinnacleGatewayTest`'s wire-contract tests for the new
+  body fields (the old "the API key never appears in a request body" test's
+  premise inverted — the password legitimately belongs in the body now, so
+  it was deleted rather than kept red-herring-passing); added the missing
+  live-captured case (`"Invalid credentials"` over HTTP 200 → `InvalidApiKey`,
+  not `Unexpected` — `SendSmsResponseInterpreter.classifyErrorMessage` needed
+  `"credential"` added alongside `"api key"`/`"apikey"`); added
+  missing-userid guards for both `sendSms` and `checkStatus`.
+  `GatewayCredentialsStoreTest` gained userid round-trip/independence/clear
+  cases. No Room schema change — this all lives in DataStore, not the DB.
+- Docs corrected in CLAUDE.md (the "SMS Gateway Integration" section
+  documented apikey-only as settled fact), `network/README.md`, and the
+  top-level `README.md`'s setup steps — all three said things that were now
+  simply false, not just outdated.
+
+### What this means for the client's HostPinnacle account specifically
+Two working HostPinnacle logins surfaced during debugging: `tricreta` (auths,
+but its sender ID isn't `SKYSCOPE_` — untested further) and `skywaves` (auths
+**and** `SKYSCOPE_` is a valid registered sender ID on it — this is the one
+that actually sent the confirmed test SMS). Whichever the client intends as
+the real production HostPinnacle account, they enter its username+password+
+`SKYSCOPE_` into the new Settings fields after updating. Not this session's
+call to guess which one is "the" account.
+
+### Not touched, and why
+BlazeTech's own apikey-header auth is untouched — this was never in question,
+and constraint 9 says don't touch what's working. The `/SMSApi/apikey`
+endpoint discovered mid-investigation (a real key-management endpoint,
+`{"api":"apikey",...}` shape, needs an `action` param) was not pursued
+further once userid+password proved sufficient — no code depends on it, and
+guessing its action verb blind against a live production account stopped
+being productive after 8 tries.
+
 ---
 
 ## 🟢 v1.6.0 (2026-08-06) — dual SMS gateway + bundle purchase-window/off-window flow
