@@ -1,9 +1,9 @@
 {
-  "versionCode": 13,
-  "versionName": "1.6.0",
-  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/504237519",
-  "sha256": "fb76a8a33381b025587289a05166d7d8ad381b91ab3e6c94fd06a419bab4db62",
-  "releaseNotes": "v1.6.0 — HostPinnacle as a second SMS gateway + bundle purchase-window/off-window flow",
+  "versionCode": 14,
+  "versionName": "1.6.1",
+  "apkUrl": "https://api.github.com/repos/wazimuautomate/Scope-sms/releases/assets/504751459",
+  "sha256": "6664845cc522e92aa64950c55d93644b2f8bed72ad05c9df126e870b974e696c",
+  "releaseNotes": "v1.6.1 — HostPinnacle auth-mode fix (userid+password, not apikey header)",
   "required": false,
   "minimumSupportedVersionCode": 1
 }
