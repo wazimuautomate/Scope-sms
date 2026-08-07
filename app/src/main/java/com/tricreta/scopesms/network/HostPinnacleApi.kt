@@ -5,7 +5,6 @@ import com.squareup.moshi.Json
 import retrofit2.Response
 import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
-import retrofit2.http.Header
 import retrofit2.http.POST
 
 /**
@@ -17,9 +16,19 @@ import retrofit2.http.POST
  * Base URL: `https://smsportal.hostpinnacle.co.ke/SMSApi/`
  *
  * **The single biggest difference from BlazeTech**: this endpoint takes
- * `application/x-www-form-urlencoded` fields, not a JSON body. Auth is the
- * `apikey` HTTP header — this app only ever uses HostPinnacle's apikey auth
- * mode, never its userid/password mode, so no fields for that exist here.
+ * `application/x-www-form-urlencoded` fields, not a JSON body.
+ *
+ * **Auth is `userid`+`password` body fields, not the `apikey` header.**
+ * HostPinnacle documents both as valid modes, and this app originally used
+ * the apikey header (on the assumption that's what the client's account
+ * had). Verified live against the real gateway (2026-08-07, with the
+ * client's actual credentials) that this specific account's apikey-header
+ * auth does not work at all — every value tried, including a freshly
+ * portal-generated key, failed identically to a bogus string with
+ * `{"statusCode":"216","reason":"Invalid credentials"}`. The userid+password
+ * mode authenticated immediately. Don't revert to the header mode without
+ * re-verifying live; the docs presenting both as equally valid does not mean
+ * both are actually provisioned on a given account.
  *
  * `mobile` is **international format with a country code and no leading `+`**
  * (e.g. `254712345678`) — the opposite of BlazeTech's local `07XXXXXXXX`, hence
@@ -38,7 +47,8 @@ internal interface HostPinnacleApi {
     @FormUrlEncoded
     @POST("send")
     suspend fun sendSms(
-        @Header("apikey") apiKey: String,
+        @Field("userid") userId: String,
+        @Field("password") password: String,
         @Field("mobile") mobile: String,
         @Field("msg") message: String,
         @Field("senderid") senderId: String,
@@ -61,7 +71,8 @@ internal interface HostPinnacleApi {
     @FormUrlEncoded
     @POST("reports/status")
     suspend fun checkStatus(
-        @Header("apikey") apiKey: String,
+        @Field("userid") userId: String,
+        @Field("password") password: String,
         @Field("uuid") uuid: String,
         @Field("fromdate") fromDate: String,
         @Field("todate") toDate: String,

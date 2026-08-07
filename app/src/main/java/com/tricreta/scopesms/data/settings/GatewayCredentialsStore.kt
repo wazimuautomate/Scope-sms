@@ -39,7 +39,9 @@ import kotlinx.coroutines.withContext
  * BlazeTech and HostPinnacle each get their own key + sender ID, stored under
  * their own DataStore keys ([apiKeyKey]/[senderIdKey]) so switching the active
  * provider in Settings can never lose or overwrite the other one's saved
- * credentials.
+ * credentials. HostPinnacle additionally has a `userid` ([userIdKey]) —
+ * always absent for BlazeTech — since its account auth is username+password,
+ * not an API key; see [GatewayCredentials.userId].
  *
  * The original, unscoped keys ([KEY_API_KEY]/[KEY_SENDER_ID]) are kept
  * **permanently, read-only** — every install that existed before this feature
@@ -124,6 +126,15 @@ class GatewayCredentialsStore(
         .map { prefs -> storedSenderId(prefs, provider)?.let { decryptOrNull(it) } }
 
     /**
+     * The HostPinnacle `userid` for display, or null. Always null for
+     * [GatewayProvider.BLAZETECH], which has no such concept — see
+     * [GatewayCredentials.userId].
+     */
+    fun userId(provider: GatewayProvider): Flow<String?> = dataStore.data
+        .safe()
+        .map { prefs -> storedUserId(prefs, provider)?.let { decryptOrNull(it) } }
+
+    /**
      * The credentials for [provider], or null when unset or undecryptable.
      *
      * Called on the queue's send path, once per drain — but only for the ONE
@@ -141,8 +152,13 @@ class GatewayCredentialsStore(
 
         val apiKey = decryptOrNull(storedKey)
         val senderId = decryptOrNull(storedSender)
+        // Absent is fine (BlazeTech never has one); present-but-undecryptable
+        // is treated exactly like a corrupt apiKey/senderId below, not as "no
+        // userId" — that would silently send HostPinnacle a blank userid.
+        val storedUser = storedUserId(prefs, provider)
+        val userId = storedUser?.let { decryptOrNull(it) }
 
-        if (apiKey.isNullOrBlank() || senderId.isNullOrBlank()) {
+        if (apiKey.isNullOrBlank() || senderId.isNullOrBlank() || (storedUser != null && userId.isNullOrBlank())) {
             // Stored but unreadable — the Keystore key is gone (an OEM Keystore
             // bug on exactly the handsets this class's doc names, or an app-data
             // restore onto a phone that can't decrypt it).
@@ -160,7 +176,7 @@ class GatewayCredentialsStore(
             return@withContext null
         }
 
-        GatewayCredentials(apiKey = apiKey, senderId = senderId)
+        GatewayCredentials(apiKey = apiKey, senderId = senderId, userId = userId)
     }
 
     /**
@@ -178,11 +194,20 @@ class GatewayCredentialsStore(
         withContext(Dispatchers.IO) {
             val encryptedKey = encryptOrNull(credentials.apiKey) ?: return@withContext false
             val encryptedSender = encryptOrNull(credentials.senderId) ?: return@withContext false
+            // Null for BlazeTech (no userid concept). Encrypted only when
+            // present — encryptOrNull only fails on a genuine Keystore error,
+            // never on a null input, so there is nothing to short-circuit on.
+            val encryptedUser = credentials.userId?.let { encryptOrNull(it) ?: return@withContext false }
 
             try {
                 dataStore.edit { prefs ->
                     prefs[apiKeyKey(provider)] = encryptedKey
                     prefs[senderIdKey(provider)] = encryptedSender
+                    if (encryptedUser != null) {
+                        prefs[userIdKey(provider)] = encryptedUser
+                    } else {
+                        prefs.remove(userIdKey(provider))
+                    }
                 }
                 true
             } catch (e: IOException) {
@@ -204,6 +229,7 @@ class GatewayCredentialsStore(
             dataStore.edit { prefs ->
                 prefs.remove(apiKeyKey(provider))
                 prefs.remove(senderIdKey(provider))
+                prefs.remove(userIdKey(provider))
                 if (legacyFallbackApplies(provider)) {
                     prefs.remove(KEY_API_KEY)
                     prefs.remove(KEY_SENDER_ID)
@@ -244,6 +270,10 @@ class GatewayCredentialsStore(
     private fun storedSenderId(prefs: Preferences, provider: GatewayProvider): String? =
         prefs[senderIdKey(provider)]
             ?: prefs[KEY_SENDER_ID].takeIf { legacyFallbackApplies(provider) }
+
+    /** No legacy fallback: `userid` didn't exist before HostPinnacle did. */
+    private fun storedUserId(prefs: Preferences, provider: GatewayProvider): String? =
+        prefs[userIdKey(provider)]
 
     // --------------------------------------------------------------------------
 
@@ -306,6 +336,9 @@ class GatewayCredentialsStore(
 
         private fun senderIdKey(provider: GatewayProvider) =
             stringPreferencesKey("gateway_sender_id_${provider.name.lowercase()}")
+
+        private fun userIdKey(provider: GatewayProvider) =
+            stringPreferencesKey("gateway_user_id_${provider.name.lowercase()}")
 
         private val Context.credentialsDataStore by preferencesDataStore(name = "scope_sms_gateway")
 

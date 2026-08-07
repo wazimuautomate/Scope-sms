@@ -36,21 +36,26 @@ Rate limit: 100 requests/minute per API key.
 ### HostPinnacle (`HostPinnacleGateway`, `HostPinnacleApi`)
 Base URL: `https://smsportal.hostpinnacle.co.ke/SMSApi/`
 
-- `POST send` — **form-encoded**, not JSON: `mobile`, `msg`, `senderid`,
-  `sendMethod=quick`, `msgType=text`, `duplicatecheck=true`, `output=json`.
-  Auth is the `apikey` HTTP header (this app only ever uses apikey auth, never
-  userid/password). Phone format is **international**, no leading `+`
-  (`254XXXXXXXXX`, via `PhoneNumbers.toInternationalFormat`) — the opposite of
-  BlazeTech's local format.
+- `POST send` — **form-encoded**, not JSON: `userid`, `password`, `mobile`,
+  `msg`, `senderid`, `sendMethod=quick`, `msgType=text`,
+  `duplicatecheck=true`, `output=json`. Auth is **`userid`+`password` body
+  fields, not the `apikey` header** — HostPinnacle documents both, but this
+  client's account only authenticates via userid+password (verified live
+  2026-08-07; the apikey header failed identically to a bogus key). See
+  `GatewayCredentials`'s doc: `.apiKey` holds the password for this
+  provider, paired with `.userId`. Phone format is **international**, no
+  leading `+` (`254XXXXXXXXX`, via `PhoneNumbers.toInternationalFormat`) —
+  the opposite of BlazeTech's local format.
 - The response shape is verified byte-for-byte the same as BlazeTech's live
   shape (`status`/`mobile`/`invalidMobile`/`transactionId`/`statusCode`/`reason`)
   — `SendSmsResponse` and `SendSmsResponseInterpreter` are shared, not
   duplicated, between the two gateways.
 - `POST reports/status` — delivery-status lookup by `uuid` (the `transactionId`
   `send` returned), `fromdate`/`todate` (`YYYY-MM-DD`) and `output=json`, same
-  form-encoding + `apikey` header as `send`. Exposed as `SmsGateway.checkStatus`,
-  default-implemented as `NotSupported` on the interface so `BlazeTechGateway`
-  needed no changes — BlazeTech's own optional `/smsstatus` isn't wired up.
+  form-encoding + `userid`+`password` auth as `send`. Exposed as
+  `SmsGateway.checkStatus`, default-implemented as `NotSupported` on the
+  interface so `BlazeTechGateway` needed no changes — BlazeTech's own
+  optional `/smsstatus` isn't wired up.
 
 ## Failure mapping is the point of this package
 "Send failed" is not an acceptable log line — the agent has to be able to

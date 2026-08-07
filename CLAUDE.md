@@ -112,7 +112,8 @@ Full phased implementation plan: `02-BUILD-PLAN.md`.
   bundle, templates — now three template *types*, outbound send-queue/job
   table — each job remembers which gateway provider it was created under,
   activity log — same), DataStore/EncryptedSharedPreferences (settings: SIM
-  selection, **per-gateway** API key + sender ID and which gateway is active,
+  selection, **per-gateway** credentials (API key for BlazeTech; username +
+  password for HostPinnacle) + sender ID, and which gateway is active,
   the three independent notification toggles, battery-exemption status,
   onboarding state).
 - **Ingestion (sync, local):** `BroadcastReceiver` (SMS_RECEIVED) → SIM
@@ -141,9 +142,12 @@ HostPinnacle (added later, at the client's request, to switch providers
 livelihood, so it must keep working exactly as before regardless of which
 gateway is added). Settings has a dropdown (`GatewayProvider`: `BLAZETECH` /
 `HOSTPINNACLE`, default `BLAZETECH`) that picks the active one; each provider
-has its **own API key + sender ID**, entered and saved independently
+has its **own credentials + sender ID**, entered and saved independently
 (`data/settings/GatewayCredentialsStore`, provider-scoped) — switching the
 dropdown never loses or overwrites the other provider's saved credentials.
+BlazeTech's credential is an API key; HostPinnacle's is a **username +
+password** (see its own subsection below for why — this was originally built
+as apikey-only and corrected after live testing).
 Both gateway clients implement one `network/SmsGateway` interface and share
 one response-interpretation function (`network/SendSmsResponseInterpreter`),
 since both providers' send responses are verified to be the same shape.
@@ -177,13 +181,24 @@ error even though nothing else about the job changed.
 ### HostPinnacle (`network/HostPinnacleGateway`, `network/HostPinnacleApi`)
 - Base URL: `https://smsportal.hostpinnacle.co.ke/SMSApi/`
 - `POST send` — **`application/x-www-form-urlencoded`**, not JSON (the
-  single biggest wire-format difference from BlazeTech). Auth is the
-  `apikey` HTTP header (this app only ever uses HostPinnacle's apikey auth
-  mode, never userid/password). Form fields: `mobile` (recipient,
-  **international format with country code, no leading `+`**, e.g.
-  `254712345678` — the opposite of BlazeTech's local format, hence
-  `PhoneNumbers.toInternationalFormat`), `msg`, `senderid`,
-  `sendMethod=quick`, `msgType=text`, `duplicatecheck=true`, `output=json`.
+  single biggest wire-format difference from BlazeTech). Auth is **`userid`+
+  `password` body fields, not the `apikey` header.** HostPinnacle documents
+  both as valid; this app originally used the apikey header on the
+  assumption that's what the client's account had. Verified live
+  (2026-08-07, with the client's real credentials) that this account's
+  apikey-header auth does not work at all — every value tried, including a
+  freshly portal-generated key, failed identically to a bogus string
+  (`{"statusCode":"216","reason":"Invalid credentials"}`). userid+password
+  authenticated immediately. Don't revert to the header mode without
+  re-verifying live against the account in use — the docs presenting both
+  as valid doesn't mean both are actually provisioned. `GatewayCredentials
+  .apiKey` holds the **password** for this provider (paired with
+  `.userId`), not an API key — see that class's doc. Form fields: `userid`,
+  `password`, `mobile` (recipient, **international format with country
+  code, no leading `+`**, e.g. `254712345678` — the opposite of BlazeTech's
+  local format, hence `PhoneNumbers.toInternationalFormat`), `msg`,
+  `senderid`, `sendMethod=quick`, `msgType=text`, `duplicatecheck=true`,
+  `output=json`.
 - Response shape is verified **byte-for-byte the same** as BlazeTech's live
   shape (`status`/`mobile`/`invalidMobile`/`transactionId`/`statusCode`/
   `reason`) — `SendSmsResponse` and `SendSmsResponseInterpreter` are reused

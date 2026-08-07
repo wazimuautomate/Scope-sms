@@ -470,11 +470,13 @@ private fun SimOption(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * Points a new agent at where the currently-selected gateway actually issues
- * an API key. BlazeTech keeps its existing direct API-keys link; HostPinnacle
- * links to their portal, where a key is managed per their own docs.
- * Without this, "API key" is a field with nothing to type into it and no
- * indication of where one comes from.
+ * Points a new agent at where the currently-selected gateway account actually
+ * comes from. BlazeTech keeps its existing direct API-keys link; HostPinnacle
+ * links to their portal, where the agent's userid+password login lives (not
+ * an API key — see [GatewayCredentials.userId]'s doc for why this app uses
+ * that auth mode instead of the header-based one HostPinnacle also offers).
+ * Without this, the credential fields have nothing to type into them and no
+ * indication of where the values come from.
  */
 @Composable
 private fun ApiKeySignupHint(provider: GatewayProvider) {
@@ -482,7 +484,11 @@ private fun ApiKeySignupHint(provider: GatewayProvider) {
         GatewayProvider.BLAZETECH -> "https://sms.blazetechscope.com/apikeys"
         GatewayProvider.HOSTPINNACLE -> "https://smsportal.hostpinnacle.co.ke/"
     }
-    val prefix = stringResource(R.string.settings_gateway_get_key)
+    val prefixRes = when (provider) {
+        GatewayProvider.BLAZETECH -> R.string.settings_gateway_get_key
+        GatewayProvider.HOSTPINNACLE -> R.string.settings_gateway_get_account
+    }
+    val prefix = stringResource(prefixRes)
     val text = buildAnnotatedString {
         append(prefix)
         append(" ")
@@ -576,18 +582,43 @@ private fun GatewaySection(state: SettingsUiState, viewModel: SettingsViewModel)
     )
 
     if (state.gatewayConfigured) {
-        Text(
-            text = stringResource(R.string.settings_gateway_saved, state.maskedApiKey, state.senderId),
-            style = MaterialTheme.typography.bodyMedium,
+        val savedText = if (state.showUsernameField && state.hostPinnacleUserId.isNotBlank()) {
+            stringResource(
+                R.string.settings_gateway_saved_with_user,
+                state.hostPinnacleUserId,
+                state.maskedApiKey,
+                state.senderId,
+            )
+        } else {
+            stringResource(R.string.settings_gateway_saved, state.maskedApiKey, state.senderId)
+        }
+        Text(text = savedText, style = MaterialTheme.typography.bodyMedium)
+    }
+
+    // HostPinnacle authenticates with userid+password, not an API key — see
+    // GatewayCredentials.userId's doc. BlazeTech has no username concept.
+    if (state.showUsernameField) {
+        OutlinedTextField(
+            value = state.usernameInput,
+            onValueChange = viewModel::updateUsernameInput,
+            label = { Text(stringResource(R.string.settings_username)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 
     OutlinedTextField(
         value = state.apiKeyInput,
         onValueChange = viewModel::updateApiKeyInput,
-        label = { Text(stringResource(R.string.settings_api_key)) },
-        // The key is a secret and Settings is the screen most likely to be
-        // screenshotted or shoulder-surfed.
+        label = {
+            Text(
+                stringResource(
+                    if (state.showUsernameField) R.string.settings_password else R.string.settings_api_key,
+                ),
+            )
+        },
+        // The key/password is a secret and Settings is the screen most likely
+        // to be screenshotted or shoulder-surfed.
         visualTransformation = PasswordVisualTransformation(),
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),

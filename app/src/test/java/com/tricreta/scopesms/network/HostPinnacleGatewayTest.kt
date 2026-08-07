@@ -19,7 +19,8 @@ import retrofit2.Response
  * and timeout/no-connectivity. Most of the *interpretation* logic is already
  * proven there, since both gateways share [SendSmsResponseInterpreter]; what's
  * specific to this class and worth its own coverage is the wire shape
- * (form-encoded body + header auth, not JSON) and the international phone
+ * (form-encoded body + userid/password body auth, not JSON, not the `apikey`
+ * header — see [HostPinnacleApi]'s doc for why) and the international phone
  * format.
  */
 class HostPinnacleGatewayTest {
@@ -27,7 +28,8 @@ class HostPinnacleGatewayTest {
     private lateinit var server: MockWebServer
     private lateinit var gateway: HostPinnacleGateway
 
-    private val credentials = GatewayCredentials(apiKey = "test-key-123", senderId = "MYBIZ")
+    // apiKey holds the account PASSWORD for HostPinnacle, per GatewayCredentials.userId's doc.
+    private val credentials = GatewayCredentials(apiKey = "test-password", senderId = "MYBIZ", userId = "test-user")
     private var provided: GatewayCredentials? = credentials
 
     private val credentialsProvider = object : GatewayCredentialsProvider {
@@ -68,7 +70,8 @@ class HostPinnacleGatewayTest {
     private fun gatewayThatThrows(error: Throwable) = HostPinnacleGateway(
         object : HostPinnacleApi {
             override suspend fun sendSms(
-                apiKey: String,
+                userId: String,
+                password: String,
                 mobile: String,
                 message: String,
                 senderId: String,
@@ -79,7 +82,8 @@ class HostPinnacleGatewayTest {
             ): Response<SendSmsResponse> = throw error
 
             override suspend fun checkStatus(
-                apiKey: String,
+                userId: String,
+                password: String,
                 uuid: String,
                 fromDate: String,
                 toDate: String,
@@ -92,13 +96,13 @@ class HostPinnacleGatewayTest {
     // --- The wire contract ---------------------------------------------------
 
     @Test
-    fun `the request is form-encoded, not JSON, with the apikey header and international phone`() = runTest {
+    fun `the request is form-encoded, not JSON, with userid+password body fields and international phone`() = runTest {
         enqueueJson(200, """{"status":"success","statusCode":"200","transactionId":"txn-1"}""")
 
         gateway.sendSms(phone = "254700000000", message = "Habari Bonke")
 
         val request = server.takeRequest()
-        assertThat(request.headers["apikey"]).isEqualTo("test-key-123")
+        assertThat(request.headers["apikey"]).isNull()
         assertThat(request.headers["Content-Type"]).contains("application/x-www-form-urlencoded")
         val body = request.body!!.utf8()
         // Phone is international (254...), not local (07...) — the opposite of
@@ -110,8 +114,11 @@ class HostPinnacleGatewayTest {
         assertThat(body).contains("msgType=text")
         assertThat(body).contains("duplicatecheck=true")
         assertThat(body).contains("output=json")
-        // The API key travels in the header, never the body.
-        assertThat(body).doesNotContain("test-key-123")
+        // Auth travels as body fields here, not a header — the opposite of the
+        // header-based apikey mode this app tried first and found doesn't
+        // authenticate this account (see HostPinnacleApi's doc).
+        assertThat(body).contains("userid=test-user")
+        assertThat(body).contains("password=test-password")
     }
 
     @Test
@@ -146,6 +153,19 @@ class HostPinnacleGatewayTest {
     @Test
     fun `401 maps to InvalidApiKey and is terminal`() = runTest {
         enqueueJson(401, """{"reason":"Invalid API key"}""")
+
+        val reason = gateway.sendSms("0700000000", "hi").failureReason()
+
+        assertThat(reason).isEqualTo(SendFailure.InvalidApiKey)
+        assertThat(reason.retryable).isFalse()
+    }
+
+    @Test
+    fun `a 200 with reason Invalid credentials maps to InvalidApiKey, not Unexpected`() = runTest {
+        // Captured live from the real gateway (2026-08-07) with a bad key: HTTP
+        // 200, no success signal, this exact reason text. See
+        // SendSmsResponseInterpreter.classifyErrorMessage.
+        enqueueJson(200, """{"status":"error","statusCode":"216","reason":"Invalid credentials"}""")
 
         val reason = gateway.sendSms("0700000000", "hi").failureReason()
 
@@ -226,6 +246,19 @@ class HostPinnacleGatewayTest {
     }
 
     @Test
+    fun `a saved password with no userid fails terminally without touching the network`() = runTest {
+        // Shouldn't happen via Settings (canSaveGateway requires a username for
+        // HostPinnacle), but this is the guard that prevents sending a blank
+        // userid if it ever does.
+        provided = GatewayCredentials(apiKey = "test-password", senderId = "MYBIZ", userId = null)
+
+        val reason = gateway.sendSms("0700000000", "hi").failureReason()
+
+        assertThat(reason).isEqualTo(SendFailure.InvalidApiKey)
+        assertThat(server.requestCount).isEqualTo(0)
+    }
+
+    @Test
     fun `unparseable recipient fails terminally without touching the network`() = runTest {
         val reason = gateway.sendSms("not-a-number", "hi").failureReason()
 
@@ -253,13 +286,15 @@ class HostPinnacleGatewayTest {
     }
 
     @Test
-    fun `checkStatus sends uuid and a fromdate-todate window, form-encoded`() = runTest {
+    fun `checkStatus sends uuid, userid+password, and a fromdate-todate window, form-encoded`() = runTest {
         enqueueJson(200, """{"response":{"report_statusList":[]}}""")
 
         gateway.checkStatus("txn-123")
 
         val body = server.takeRequest().body!!.utf8()
         assertThat(body).contains("uuid=txn-123")
+        assertThat(body).contains("userid=test-user")
+        assertThat(body).contains("password=test-password")
         assertThat(body).contains("fromdate=")
         assertThat(body).contains("todate=")
         assertThat(body).contains("output=json")
@@ -295,6 +330,16 @@ class HostPinnacleGatewayTest {
     }
 
     @Test
+    fun `checkStatus with a saved password but no userid fails terminally without touching the network`() = runTest {
+        provided = GatewayCredentials(apiKey = "test-password", senderId = "MYBIZ", userId = null)
+
+        val outcome = gateway.checkStatus("txn-123")
+
+        assertThat(outcome).isEqualTo(DeliveryStatusOutcome.Failed("Gateway not set up"))
+        assertThat(server.requestCount).isEqualTo(0)
+    }
+
+    @Test
     fun `BlazeTechGateway checkStatus is NotSupported, unchanged by the interface default`() = runTest {
         // Proves adding checkStatus to SmsGateway needed zero BlazeTech code
         // changes — it inherits the interface's default implementation.
@@ -308,18 +353,12 @@ class HostPinnacleGatewayTest {
         assertThat(blazeTech.checkStatus("txn-123")).isEqualTo(DeliveryStatusOutcome.NotSupported)
     }
 
-    // --- Secrets --------------------------------------------------------------
-
-    @Test
-    fun `the API key never appears in a request body`() = runTest {
-        // Constraint 7: unlike BlazeTech, HostPinnacle's key travels in a
-        // header, not the body — assert it never leaks into the form fields.
-        enqueueJson(200, """{"status":"success","statusCode":"200","transactionId":"txn-1"}""")
-
-        gateway.sendSms("0700000000", "hi")
-
-        assertThat(server.takeRequest().body!!.utf8()).doesNotContain(credentials.apiKey)
-    }
+    // Secrets: GatewayCredentials.toString() masking is covered once, shared
+    // by both gateways, in BlazeTechGatewayTest — no HostPinnacle-specific
+    // request DTO exists here to test separately (unlike BlazeTech's
+    // SendSmsRequest). HostPinnacle's password legitimately appears in the
+    // form body now (see the wire-contract test above) — that's the userid
+    // +password auth contract working as intended, not a leak.
 
     private fun SendOutcome.failureReason(): SendFailure {
         assertThat(this).isInstanceOf(SendOutcome.Failed::class.java)
